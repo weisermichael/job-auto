@@ -16,6 +16,7 @@ Given a candidate's **base resume** (in Markdown) and a **job description**, rew
 6. **Do not remove** any job roles or educational credentials.
 7. **Summary section**: Rewrite to 2–3 sentences that directly address the role's top requirements.
 8. **Skills section**: Re-order to lead with the skills most relevant to this role.
+9. **ONE PAGE MAXIMUM — this is non-negotiable.** The final resume must fit on a single printed page. Ruthlessly cut or condense content — trim bullets, shorten the summary, reduce the skills list — whatever is needed. Prioritize the most relevant content for this specific role and drop the rest.
 
 ## Output Format
 

@@ -17,6 +17,7 @@ _PROMPT_PATH = Path(__file__).parent / "prompts" / "tailor_resume.md"
 
 _SYSTEM_PROMPT = """You are an expert resume writer. You must follow the instructions exactly.
 CRITICAL: Never add technologies, tools, companies, or achievements that are not in the base resume.
+CRITICAL: The resume MUST fit on one page. Cut or condense ruthlessly — prioritize relevance to the role.
 Return ONLY valid JSON — no prose, no markdown fences."""
 
 
