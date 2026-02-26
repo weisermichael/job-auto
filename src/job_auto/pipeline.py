@@ -237,7 +237,7 @@ class Pipeline:
         app.tailored_resume_text = tailored_md
 
         # Generate cover letter
-        letter = generate_cover_letter(job, tailored_md)
+        letter = generate_cover_letter(job, tailored_md, candidate_name=config.candidate_name)
         app.cover_letter_text = cover_letter_to_markdown(letter)
 
         app.status = ApplicationStatus.REVIEW_PENDING if not self.autonomous else ApplicationStatus.QUEUED

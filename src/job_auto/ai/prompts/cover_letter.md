@@ -27,7 +27,7 @@ Return a JSON object:
   "paragraph_1": "<Opening hook paragraph>",
   "paragraph_2": "<Accomplishments paragraph>",
   "paragraph_3": "<Closing paragraph with call to action>",
-  "closing": "<Sincerely, / Best regards, — then candidate name>",
+  "closing": "<Sincerely, / Best regards, / etc.>\n\n{candidate_name}",
   "full_text": "<Complete letter as a single string with newlines>"
 }
 ```
@@ -43,3 +43,4 @@ Return a JSON object:
 **Role Title:** {job_title}
 **Company:** {company}
 **Hiring Manager (if known):** {hiring_manager}
+**Candidate Name:** {candidate_name}

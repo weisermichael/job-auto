@@ -31,6 +31,7 @@ def generate_cover_letter(
     job: JobPosting,
     tailored_resume_md: str,
     hiring_manager: str = "Hiring Manager",
+    candidate_name: str = "",
 ) -> dict[str, Any]:
     """
     Generate a cover letter for the given job.
@@ -46,6 +47,7 @@ def generate_cover_letter(
         job_title=job.title,
         company=job.company,
         hiring_manager=hiring_manager,
+        candidate_name=candidate_name,
     )
 
     logger.info("generating_cover_letter", job_id=job.id, company=job.company)
@@ -68,6 +70,18 @@ def generate_cover_letter(
         text = text[:-3].strip()
 
     result = json.loads(text)
+
+    # Enforce the candidate name in the closing regardless of what Claude produced
+    if candidate_name:
+        closing = result.get("closing", "Sincerely,")
+        # Strip any name Claude may have appended, then add the real one
+        closing_lines = closing.strip().splitlines()
+        sign_off = closing_lines[0] if closing_lines else "Sincerely,"
+        result["closing"] = f"{sign_off}\n\n{candidate_name}"
+        # Rebuild full_text with the corrected closing
+        if result.get("full_text"):
+            result["full_text"] = cover_letter_to_markdown(result)
+
     logger.info("cover_letter_complete", job_id=job.id)
     return result
 

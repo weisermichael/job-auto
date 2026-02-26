@@ -21,6 +21,9 @@ class Config(BaseSettings):
     linkedin_email: str = ""
     linkedin_password: SecretStr = SecretStr("")
 
+    # Candidate info
+    candidate_name: str = ""
+
     # Behaviour toggles
     autonomous_mode: bool = False
     max_retries: int = 3
