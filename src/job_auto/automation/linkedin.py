@@ -1,0 +1,191 @@
+"""LinkedIn Easy Apply automation bot."""
+
+from __future__ import annotations
+
+import asyncio
+import random
+from datetime import datetime
+from pathlib import Path
+
+from playwright.async_api import Page
+
+from job_auto.automation.base import AbstractApplicator, ApplicationResult
+from job_auto.automation.browser import human_move_and_click, human_type
+from job_auto.config import config
+from job_auto.knowledge_base.store import kb_store
+from job_auto.models.application import ApplicationRecord
+from job_auto.models.job_posting import JobPosting
+from job_auto.models.procedure import ApplicationProcedure, FormSelector, ProcedureStep
+from job_auto.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
+_DEFAULT_PROCEDURE = ApplicationProcedure(
+    board="linkedin",
+    version=1,
+    last_updated=datetime.utcnow(),
+    steps=[
+        ProcedureStep(
+            order=1,
+            description="Navigate to job posting",
+            action="navigate",
+            value="{{job_url}}",
+            wait_after_ms=2000,
+        ),
+        ProcedureStep(
+            order=2,
+            description="Click Easy Apply button",
+            action="click",
+            selector=".jobs-apply-button--top-card, button[aria-label*='Easy Apply']",
+            wait_after_ms=1500,
+        ),
+        ProcedureStep(
+            order=3,
+            description="Upload resume",
+            action="upload",
+            selector="input[type='file']",
+            value="{{resume_path}}",
+            wait_after_ms=2000,
+        ),
+        ProcedureStep(
+            order=4,
+            description="Fill contact phone (if required)",
+            action="fill",
+            selector="input[name='phoneNumber'], input[id*='phone']",
+            value="{{phone}}",
+            wait_after_ms=500,
+            optional=True,
+        ),
+        ProcedureStep(
+            order=5,
+            description="Click Next / Continue through multi-page form",
+            action="click",
+            selector="button[aria-label='Continue to next step'], footer button.artdeco-button--primary",
+            wait_after_ms=1500,
+        ),
+        ProcedureStep(
+            order=6,
+            description="Submit application",
+            action="submit",
+            selector="button[aria-label='Submit application']",
+            wait_after_ms=3000,
+        ),
+    ],
+    selectors={
+        "easy_apply_btn": FormSelector(css=".jobs-apply-button--top-card"),
+        "file_upload": FormSelector(css="input[type='file']"),
+        "submit_btn": FormSelector(css="button[aria-label='Submit application']"),
+        "next_btn": FormSelector(css="footer button.artdeco-button--primary"),
+        "phone_field": FormSelector(css="input[name='phoneNumber']"),
+    },
+)
+
+
+class LinkedInApplicator(AbstractApplicator):
+    board_name = "linkedin"
+
+    def load_procedure(self) -> ApplicationProcedure:
+        stored = kb_store.get_procedure("linkedin")
+        return stored or _DEFAULT_PROCEDURE
+
+    async def execute_step(self, step: ProcedureStep, context: dict[str, str]) -> bool:
+        page = self.page
+        action = step.action
+        selector = step.selector
+        value = step.render_value(context)
+
+        if action == "navigate":
+            await page.goto(value or context.get("job_url", ""), wait_until="domcontentloaded")
+
+        elif action == "click":
+            await self._smart_click(selector or "")
+
+        elif action == "fill":
+            if not value:
+                if step.optional:
+                    return True
+                raise ValueError(f"No value for fill step {step.order}")
+            await self._smart_fill(selector or "", value)
+
+        elif action == "upload":
+            if not value or not Path(value).exists():
+                if step.optional:
+                    return True
+                raise FileNotFoundError(f"Resume file not found: {value}")
+            await page.set_input_files(selector or "input[type='file']", value)
+
+        elif action == "submit":
+            # Handle multi-page LinkedIn Easy Apply forms
+            await self._handle_multipage_form(context)
+            await self._smart_click(selector or "button[aria-label='Submit application']")
+
+        elif action == "wait":
+            ms = step.wait_after_ms or 1000
+            await asyncio.sleep(ms / 1000)
+
+        elif action == "screenshot":
+            await self._take_screenshot(context.get("app_id", "unknown"), step.order)
+
+        return True
+
+    async def _handle_multipage_form(self, context: dict[str, str]) -> None:
+        """Click through multi-step LinkedIn Easy Apply form pages."""
+        max_pages = 10
+        for _ in range(max_pages):
+            # Check if submit button is present
+            submit_visible = await self.page.is_visible(
+                "button[aria-label='Submit application']", timeout=1000
+            )
+            if submit_visible:
+                break
+
+            # Look for Next / Continue button
+            next_sel = (
+                "button[aria-label='Continue to next step'], "
+                "button[aria-label='Review your application'], "
+                "footer button.artdeco-button--primary"
+            )
+            next_visible = await self.page.is_visible(next_sel, timeout=1000)
+            if next_visible:
+                await human_move_and_click(self.page, next_sel)
+                await asyncio.sleep(random.uniform(1.0, 2.0))
+            else:
+                break
+
+    async def _smart_click(self, selector: str) -> None:
+        """Click with retry across comma-separated selector fallbacks."""
+        selectors = [s.strip() for s in selector.split(",")]
+        for sel in selectors:
+            try:
+                await self.page.wait_for_selector(sel, timeout=5000)
+                await human_move_and_click(self.page, sel)
+                return
+            except Exception:
+                continue
+        raise RuntimeError(f"Could not find clickable element: {selector}")
+
+    async def _smart_fill(self, selector: str, value: str) -> None:
+        """Fill a field with retry across comma-separated selector fallbacks."""
+        selectors = [s.strip() for s in selector.split(",")]
+        for sel in selectors:
+            try:
+                await self.page.wait_for_selector(sel, timeout=5000)
+                await human_type(self.page, sel, value)
+                return
+            except Exception:
+                continue
+        raise RuntimeError(f"Could not find fillable element: {selector}")
+
+    async def login(self) -> None:
+        """Log in to LinkedIn if credentials are configured."""
+        if not config.linkedin_email:
+            raise RuntimeError("LinkedIn credentials not configured in .env")
+
+        await self.page.goto("https://www.linkedin.com/login", wait_until="networkidle")
+        await human_type(self.page, "#username", config.linkedin_email)
+        await human_type(
+            self.page, "#password", config.linkedin_password.get_secret_value()
+        )
+        await self.page.click("button[type='submit']")
+        await self.page.wait_for_load_state("networkidle")
+        logger.info("linkedin_login_complete")

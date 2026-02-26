@@ -1,0 +1,44 @@
+# Environment & secrets
+.env
+*.env.local
+
+# Runtime storage (never commit)
+storage/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# Tools
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Personal resume data (never commit real resume)
+data/resume.md
+data/resume.docx
+data/*Zone.Identifier
+
+# Claude Code local settings (machine-specific)
+.claude/

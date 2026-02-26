@@ -1,0 +1,28 @@
+# Job search criteria
+# Edit this file to customize what roles you're targeting
+
+titles:
+  - "Senior Software Engineer"
+  - "Staff Software Engineer"
+  - "Senior Backend Engineer"
+  - "Principal Engineer"
+  - "Software Engineer"
+
+keywords:
+  - Python
+  - distributed systems
+  - cloud
+  - AWS
+
+salary_floor: 150000  # Minimum annual USD (0 to disable)
+
+remote_only: true
+
+boards:
+  - linkedin
+  - indeed
+  - nodesk
+
+daily_limit: 10  # Max applications per day
+
+excluded_companies: []  # e.g. ["Company A", "Company B"]
