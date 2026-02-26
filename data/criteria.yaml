@@ -2,13 +2,26 @@
 # Edit this file to customize what roles you're targeting
 
 titles:
-  - "Senior Software Engineer"
-  - "Staff Software Engineer"
-  - "Senior Backend Engineer"
-  - "Principal Engineer"
   - "Software Engineer"
+  - "Staff Software Engineer"
+  - "Backend Engineer"
+  - "Site Reliability Engineer"
+  - "Forward Deploy Engineer"
+  - "Cloud Engineer"
+  - "Software Test Engineer"
 
 keywords:
+  - C++
+  - C#
+  - Bash
+  - SQL
+  - Linux
+  - Docker
+  - Terraform
+  - Ansible
+  - CI/CD
+  - DevOps
+  - Cloud
   - Python
   - distributed systems
   - cloud

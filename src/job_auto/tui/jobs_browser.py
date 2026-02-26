@@ -11,6 +11,7 @@ from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.screen import ModalScreen
+from rich.text import Text
 from textual.widgets import (
     Button,
     DataTable,
@@ -274,12 +275,14 @@ class JobsBrowser(App):
         panel = self.query_one("#detail-panel")
         panel.display = True
 
-        self.query_one("#detail-header", Static).update(
-            f" [bold]{job.title}[/bold]  ·  {job.company}"
-            f"  ·  [{job.board.value.upper()}]"
-            + (f"  ·  {job.salary_range}" if job.salary_range else "")
-            + f"  ·  {job.url_str[:70]}"
-        )
+        header = Text(no_wrap=True, overflow="ellipsis")
+        header.append(f" {job.title}", style="bold")
+        header.append(f"  ·  {job.company}  ·  [{job.board.value.upper()}]")
+        if job.salary_range:
+            header.append(f"  ·  {job.salary_range}")
+        header.append("  ·  ")
+        header.append("link", style=f"link {job.url_str}")
+        self.query_one("#detail-header", Static).update(header)
 
         body = self.query_one("#detail-body", RichLog)
         body.clear()
