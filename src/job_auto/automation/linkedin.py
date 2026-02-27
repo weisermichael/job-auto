@@ -6,6 +6,7 @@ import asyncio
 import random
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from playwright.async_api import Page
 
@@ -177,7 +178,14 @@ class LinkedInApplicator(AbstractApplicator):
         raise RuntimeError(f"Could not find fillable element: {selector}")
 
     async def login(self) -> None:
-        """Log in to LinkedIn if credentials are configured."""
+        """Log in to LinkedIn, handling session restore and security challenges."""
+        # Stage 1 — Session check: if cookies were restored, we may already be logged in.
+        await self.page.goto("https://www.linkedin.com/feed", wait_until="domcontentloaded")
+        if "/feed" in self.page.url:
+            logger.info("linkedin_session_valid_skipping_login")
+            return
+
+        # Stage 2 — Fresh login
         if not config.linkedin_email:
             raise RuntimeError("LinkedIn credentials not configured in .env")
 
@@ -188,4 +196,40 @@ class LinkedInApplicator(AbstractApplicator):
         )
         await self.page.click("button[type='submit']")
         await self.page.wait_for_load_state("networkidle")
+
+        # Stage 3 — Challenge handling
+        if "/checkpoint/" in self.page.url or "/challenge/" in self.page.url:
+            logger.warning("linkedin_security_challenge_detected")
+            code = await self._fetch_security_code()
+            if code:
+                pin_sel = "input[name='pin'], input[id*='verification'], input[id*='code']"
+                await self.page.wait_for_selector(pin_sel, timeout=5000)
+                await human_type(self.page, pin_sel.split(",")[0].strip(), code)
+                await self.page.keyboard.press("Enter")
+                await self.page.wait_for_load_state("networkidle")
+            if "/checkpoint/" in self.page.url or "/challenge/" in self.page.url:
+                raise RuntimeError("LinkedIn security verification was not completed")
+
         logger.info("linkedin_login_complete")
+
+    async def _fetch_security_code(self) -> Optional[str]:
+        """Try Gmail API for the security code; fall back to manual terminal prompt."""
+        from job_auto.utils.gmail import fetch_linkedin_code
+
+        token_path = config.gmail_token_path
+        if token_path.exists():
+            try:
+                logger.info("fetching_linkedin_code_from_gmail")
+                return await asyncio.to_thread(fetch_linkedin_code, token_path)
+            except TimeoutError:
+                logger.warning("gmail_code_fetch_timed_out_falling_back_to_manual")
+            except Exception as exc:
+                logger.warning("gmail_code_fetch_failed", error=str(exc))
+
+        # Manual fallback
+        print("\n" + "=" * 60)
+        print("ACTION REQUIRED: LinkedIn sent a security code to your email.")
+        print("Enter it in the browser window, then press Enter here.")
+        print("=" * 60 + "\n")
+        await asyncio.to_thread(input, "Press Enter after completing verification... ")
+        return None

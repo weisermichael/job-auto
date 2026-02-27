@@ -296,8 +296,9 @@ class Pipeline:
         with get_session() as session:
             repo.update_application(session, app)
 
+        session_path = config.linkedin_session_path if board == "linkedin" else None
         async with async_playwright() as pw:
-            async with browser_context(pw) as (_, context):
+            async with browser_context(pw, storage_state_path=session_path) as (_, context):
                 async with new_page(context) as page:
                     applicator = applicator_class(page)
 

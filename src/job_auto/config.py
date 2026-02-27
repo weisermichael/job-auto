@@ -79,6 +79,18 @@ class Config(BaseSettings):
     def criteria_path(self) -> Path:
         return self.data_dir / "criteria.yaml"
 
+    @property
+    def linkedin_session_path(self) -> Path:
+        return self.storage_dir / "linkedin_session.json"
+
+    @property
+    def gmail_credentials_path(self) -> Path:
+        return self.storage_dir / "gmail_credentials.json"
+
+    @property
+    def gmail_token_path(self) -> Path:
+        return self.storage_dir / "gmail_token.json"
+
     def ensure_dirs(self) -> None:
         """Create all storage directories if they don't exist."""
         for d in [

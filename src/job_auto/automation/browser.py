@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import random
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator, Optional
 
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
@@ -65,8 +66,14 @@ async def human_move_and_click(page: Page, selector: str) -> None:
 async def browser_context(
     playwright: Playwright,
     headless: Optional[bool] = None,
+    storage_state_path: Optional[Path] = None,
 ) -> AsyncGenerator[tuple[Browser, BrowserContext], None]:
-    """Create a stealth browser context."""
+    """Create a stealth browser context.
+
+    If storage_state_path is provided and exists, the saved cookies/localStorage
+    are loaded so the session is restored.  On exit the current state is written
+    back to the same path so future runs inherit it.
+    """
     if headless is None:
         headless = config.headless_browser
 
@@ -83,7 +90,7 @@ async def browser_context(
         ],
     )
 
-    context = await browser.new_context(
+    context_kwargs: dict = dict(
         viewport=viewport,
         user_agent=user_agent,
         locale="en-US",
@@ -91,6 +98,11 @@ async def browser_context(
         permissions=["geolocation"],
         java_script_enabled=True,
     )
+    if storage_state_path is not None and storage_state_path.exists():
+        context_kwargs["storage_state"] = str(storage_state_path)
+        logger.debug("browser_session_restored", path=str(storage_state_path))
+
+    context = await browser.new_context(**context_kwargs)
 
     # Block tracking/analytics to reduce fingerprinting surface
     await context.route(
@@ -102,6 +114,10 @@ async def browser_context(
     try:
         yield browser, context
     finally:
+        if storage_state_path is not None:
+            storage_state_path.parent.mkdir(parents=True, exist_ok=True)
+            await context.storage_state(path=str(storage_state_path))
+            logger.debug("browser_session_saved", path=str(storage_state_path))
         await context.close()
         await browser.close()
 

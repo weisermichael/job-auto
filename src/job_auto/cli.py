@@ -470,5 +470,45 @@ def kb_show(board: Optional[str]) -> None:
     console.print(table)
 
 
+# ──────────────────────────────────────────────────────────
+# gmail-auth
+# ──────────────────────────────────────────────────────────
+
+@cli.command("gmail-auth")
+def gmail_auth() -> None:
+    """One-time Gmail OAuth2 authorization for automatic security code fetching.
+
+    \b
+    Setup steps:
+      1. Create a Google Cloud project and enable the Gmail API.
+      2. Create OAuth2 Desktop credentials and download credentials.json.
+      3. Place it at storage/gmail_credentials.json.
+      4. Run this command — a browser opens for consent.
+         Token is saved to storage/gmail_token.json automatically.
+    """
+    from job_auto.utils.gmail import authenticate
+
+    creds_path = config.gmail_credentials_path
+    token_path = config.gmail_token_path
+
+    if not creds_path.exists():
+        console.print(
+            f"[red]Credentials file not found:[/red] {creds_path}\n"
+            "Download OAuth2 Desktop credentials from Google Cloud Console "
+            "and save them there."
+        )
+        raise SystemExit(1)
+
+    console.print("[bold]Before authorizing, confirm these steps are done:[/bold]")
+    console.print("  1. Gmail API is enabled for your Google Cloud project")
+    console.print("  2. OAuth consent screen → Test users: your Gmail address is listed")
+    console.print("  3. credentials.json was downloaded from OAuth 2.0 Client IDs (Desktop type)")
+    console.print()
+    console.print("Opening browser for authorization...")
+
+    authenticate(creds_path, token_path)
+    console.print(f"[green]Gmail authorized.[/green] Token saved to {token_path}")
+
+
 if __name__ == "__main__":
     cli()

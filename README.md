@@ -66,7 +66,24 @@ LINKEDIN_PASSWORD=yourpassword
 
 Replace `data/resume.md` with your actual resume in Markdown format. This is the base that Claude tailors for each role — keep it accurate and complete.
 
-**3. Configure your search criteria** *(optional)*
+**3. Set up Gmail for automatic LinkedIn security codes** *(optional but recommended)*
+
+LinkedIn frequently sends a 6-digit verification code to your email when it detects a fresh login. Without this step the run will pause and ask you to enter the code manually. With it, the code is fetched and filled in automatically.
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a project.
+2. Enable the **Gmail API** for that project (APIs & Services → Library → search "Gmail API").
+3. Create OAuth2 credentials: APIs & Services → Credentials → Create Credentials → **OAuth client ID** → Application type: **Desktop app**. Download the JSON file.
+4. Add your Gmail address as a test user: OAuth consent screen → **Test users** → **+ Add Users** → enter your Gmail address → Save. Skip this and you'll get a 403 access_denied when authorizing.
+5. Place the downloaded file at `storage/gmail_credentials.json`.
+6. Run the one-time authorization:
+
+```bash
+job-auto gmail-auth
+```
+
+A browser window opens. Sign in and grant read-only Gmail access. The token is saved to `storage/gmail_token.json` and reused on every subsequent run. Both files are covered by the `storage/` gitignore entry — they never get committed.
+
+**4. Configure your search criteria** *(optional)*
 
 Edit `data/criteria.yaml`:
 
@@ -229,6 +246,18 @@ Persists the setting to your `.env` file.
 
 ---
 
+### `gmail-auth` — authorize Gmail for security code fetching
+
+```bash
+job-auto gmail-auth
+```
+
+One-time OAuth2 setup. Requires `storage/gmail_credentials.json` to exist first (see [Setup](#setup) above). Opens a browser for consent and saves the token to `storage/gmail_token.json`.
+
+Once authorized, LinkedIn security challenges are handled automatically: the bot polls Gmail for the verification email, extracts the 6-digit code, and fills it in without any manual input. If the token is missing or polling times out, it falls back to a terminal prompt.
+
+---
+
 ### `kb show` — inspect the knowledge base
 
 ```bash
@@ -304,6 +333,9 @@ job-automation/
 ├── storage/               ← runtime data (gitignored)
 │   ├── jobs.db            ← SQLite: all jobs and applications
 │   ├── knowledge_base.json← learned per-board procedures
+│   ├── linkedin_session.json← saved LinkedIn cookies (auto-managed)
+│   ├── gmail_credentials.json← Google OAuth2 client secrets (you provide)
+│   ├── gmail_token.json   ← Gmail access token (created by gmail-auth)
 │   ├── resumes/           ← tailored resume PDFs
 │   ├── cover_letters/     ← cover letter PDFs
 │   └── screenshots/       ← failure screenshots for debugging
@@ -326,6 +358,8 @@ job-automation/
 ## Notes and limits
 
 **LinkedIn** — Easy Apply is rate-limited to roughly 10 applications per day before LinkedIn flags activity. The daily limit defaults to 10 for this reason. LinkedIn credentials are required for form submission but not for scanning public listings.
+
+**LinkedIn security challenges** — LinkedIn treats fresh browser sessions as suspicious and often sends a 6-digit verification code to your email. The session is saved to `storage/linkedin_session.json` after the first successful login, so subsequent runs skip the challenge entirely. When a challenge does appear, the bot first tries to fetch the code from Gmail automatically (requires `gmail-auth` setup); if that isn't configured or times out, it pauses and prompts you to enter the code manually.
 
 **Indeed** — The HTML search endpoint and RSS feed are both behind Cloudflare. The Indeed scraper uses Playwright (a real browser) to bypass this, so scanning is slower than other boards.
 

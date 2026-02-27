@@ -30,6 +30,8 @@ dependencies = [
     "markdown>=3.7",
     "python-slugify>=8.0.4",
     "textual>=0.80.0",
+    "google-api-python-client>=2.0",
+    "google-auth-oauthlib>=1.0",
 ]
 
 [project.scripts]
