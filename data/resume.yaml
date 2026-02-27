@@ -1,0 +1,33 @@
+cv:
+  name: "Your Name"
+  headline: "Software Engineer"
+  email: "you@example.com"
+  website: "https://yoursite.com"
+  social_networks:
+    - network: LinkedIn
+      username: yourhandle
+    - network: GitHub
+      username: yourhandle
+  sections:
+    summary:
+      - "Replace this with a 2-3 sentence professional summary."
+    experience:
+      - company: "Your Company"
+        position: "Your Title"
+        start_date: "2022-07"
+        end_date: "present"
+        highlights:
+          - "Replace with your key accomplishments."
+    education:
+      - institution: "Your University"
+        area: "Your Major"
+        degree: "BS"
+        start_date: "2018-09"
+        end_date: "2022-05"
+    skills:
+      - label: "Languages"
+        details: "Python, TypeScript"
+      - label: "Cloud & CI/CD"
+        details: "AWS, GitHub Actions"
+design:
+  theme: engineeringresumes

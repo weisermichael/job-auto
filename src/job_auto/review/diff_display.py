@@ -53,8 +53,8 @@ def display_resume_diff(base_text: str, tailored_text: str) -> None:
     tailored_lines = tailored_text.splitlines(keepends=True)
     diff = list(difflib.unified_diff(
         base_lines, tailored_lines,
-        fromfile="base_resume.md",
-        tofile="tailored_resume.md",
+        fromfile="base_resume.yaml",
+        tofile="tailored_resume.yaml",
         lineterm="",
     ))
 

@@ -29,7 +29,7 @@ Every claim must be grounded in the tailored resume provided."""
 
 def generate_cover_letter(
     job: JobPosting,
-    tailored_resume_md: str,
+    tailored_resume_text: str,
     hiring_manager: str = "Hiring Manager",
     candidate_name: str = "",
 ) -> dict[str, Any]:
@@ -42,7 +42,7 @@ def generate_cover_letter(
     template = _PROMPT_PATH.read_text(encoding="utf-8")
     user_prompt = _render(
         template,
-        tailored_resume=tailored_resume_md[:4000],
+        tailored_resume=tailored_resume_text[:4000],
         job_description=job.description[:4000],
         job_title=job.title,
         company=job.company,
