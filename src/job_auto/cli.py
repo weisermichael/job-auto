@@ -401,6 +401,51 @@ def retry_failed(auto: bool) -> None:
 
 
 # ──────────────────────────────────────────────────────────
+# submit-queued
+# ──────────────────────────────────────────────────────────
+
+@cli.command("submit-queued")
+@click.option("--limit", "-n", default=10, show_default=True, help="Max applications to submit")
+def submit_queued(limit: int) -> None:
+    """Submit all applications that were approved but not yet submitted (QUEUED status).
+
+    \b
+    Use after running: job-auto apply <url> --dry-run
+    """
+    from job_auto.pipeline import Pipeline, PipelineError
+
+    pipeline = Pipeline()
+
+    async def _run():
+        try:
+            apps = await pipeline.submit_queued(limit=limit)
+        except PipelineError as e:
+            console.print(f"[bold red]Pipeline error:[/bold red] {e}")
+            raise SystemExit(1)
+
+        if not apps:
+            console.print("[yellow]No queued applications found.[/yellow]")
+            return
+
+        table = Table(title=f"Results ({len(apps)} processed)", border_style="green")
+        table.add_column("App ID", style="dim")
+        table.add_column("Job ID", style="dim")
+        table.add_column("Status")
+
+        status_colors = {
+            "submitted": "green",
+            "failed": "red",
+        }
+        for app in apps:
+            color = status_colors.get(app.status.value, "white")
+            table.add_row(app.id, app.job_id, f"[{color}]{app.status.value}[/{color}]")
+
+        console.print(table)
+
+    asyncio.run(_run())
+
+
+# ──────────────────────────────────────────────────────────
 # mode
 # ──────────────────────────────────────────────────────────
 

@@ -180,6 +180,41 @@ class Pipeline:
 
         return results
 
+    async def submit_queued(self, limit: int = 10) -> list[ApplicationRecord]:
+        """Submit all applications that are in QUEUED status (approved, not yet submitted)."""
+        with get_session() as session:
+            apps = repo.list_applications(session, status=ApplicationStatus.QUEUED, limit=limit)
+
+        if not apps:
+            logger.info("submit_queued_none_found")
+            return []
+
+        logger.info("submit_queued_start", count=len(apps))
+        results: list[ApplicationRecord] = []
+
+        for app in apps:
+            with get_session() as session:
+                job = repo.get_job(session, app.job_id)
+            if not job:
+                logger.warning("submit_queued_job_not_found", app_id=app.id, job_id=app.job_id)
+                continue
+
+            with get_session() as session:
+                today_count = repo.count_submitted_today(session)
+            if today_count >= config.daily_apply_limit:
+                logger.warning("daily_limit_reached", limit=config.daily_apply_limit, today=today_count)
+                raise PipelineError(
+                    f"Daily application limit ({config.daily_apply_limit}) reached. Try again tomorrow."
+                )
+
+            try:
+                app = await self._submit(job, app)
+                results.append(app)
+            except Exception as e:
+                logger.error("submit_queued_error", app_id=app.id, error=str(e))
+
+        return results
+
     async def scan(
         self,
         board: str,
