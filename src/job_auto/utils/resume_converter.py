@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -72,6 +73,40 @@ def md_to_pdf(md_text: str, output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     html = md_to_html(md_text)
     return html_to_pdf(html, output_path)
+
+
+def yaml_to_pdf(yaml_text: str, output_path: Path) -> Path:
+    """Render a rendercv YAML string to PDF and write it to output_path."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+        yaml_path = tmp / "cv.yaml"
+        yaml_path.write_text(yaml_text, encoding="utf-8")
+
+        result = subprocess.run(
+            [
+                "rendercv", "render", str(yaml_path),
+                "--dont-generate-markdown",
+                "--dont-generate-html",
+                "--dont-generate-png",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(tmp),
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"rendercv failed:\n{result.stdout}")
+
+        # rendercv outputs to rendercv_output/{Name}_CV.pdf — find it by glob
+        pdfs = list((tmp / "rendercv_output").glob("*.pdf"))
+        if not pdfs:
+            raise RuntimeError(
+                "rendercv did not produce a PDF. Check resume.yaml structure."
+            )
+        shutil.copy2(pdfs[0], output_path)
+
+    logger.info("yaml_to_pdf_complete", path=str(output_path))
+    return output_path
 
 
 def docx_to_md(docx_path: Path) -> str:

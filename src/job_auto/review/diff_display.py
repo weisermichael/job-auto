@@ -44,6 +44,16 @@ def display_job_summary(job: JobPosting) -> None:
     console.print(Panel(table, title=f"[bold]{escape(job.title)}[/bold]", border_style="cyan"))
 
 
+def _sections_yaml(yaml_text: str) -> str:
+    """Extract cv.sections from a rendercv YAML and re-serialize for diffing."""
+    try:
+        import yaml as _yaml
+        sections = _yaml.safe_load(yaml_text).get("cv", {}).get("sections", {})
+        return _yaml.dump(sections, allow_unicode=True, sort_keys=False)
+    except Exception:
+        return yaml_text  # graceful fallback
+
+
 def display_resume_diff(base_text: str, tailored_text: str) -> None:
     """Show a side-by-side or unified diff of base vs tailored resume."""
     console.print(Rule("[bold]Resume Changes[/bold]", style="yellow"))
@@ -53,8 +63,8 @@ def display_resume_diff(base_text: str, tailored_text: str) -> None:
     tailored_lines = tailored_text.splitlines(keepends=True)
     diff = list(difflib.unified_diff(
         base_lines, tailored_lines,
-        fromfile="base_resume.md",
-        tofile="tailored_resume.md",
+        fromfile="base_resume.yaml",
+        tofile="tailored_resume.yaml",
         lineterm="",
     ))
 
@@ -98,7 +108,7 @@ def review_application(
     console.print()
 
     if app.tailored_resume_text:
-        display_resume_diff(base_resume, app.tailored_resume_text)
+        display_resume_diff(_sections_yaml(base_resume), _sections_yaml(app.tailored_resume_text))
 
     if app.cover_letter_text:
         display_cover_letter(app.cover_letter_text)

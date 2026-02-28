@@ -58,10 +58,7 @@ Prompt templates live in `ai/prompts/*.md` with `{placeholder}` substitutions. *
 ### Deduplication
 Pipeline `apply()` looks up jobs by URL (not ID) using `repo.get_job_by_url()`. Freshly-scraped jobs always get new UUIDs, so the DB canonical record must be loaded by URL to get the correct ID before looking up applications.
 
-### StrEnum compatibility
-Python 3.10 doesn't have `StrEnum` in stdlib. It's defined locally in `models/application.py` as `class StrEnum(str, Enum)`.
-
 ## Data files
-- `data/resume.md` — base resume fed to Claude for tailoring
+- `data/resume.yaml` — base resume in rendercv YAML format (`engineeringresumes` theme); replace the placeholder with your actual content
 - `data/criteria.yaml` — target titles, keywords, salary floor (used by `scan` criteria filtering)
 - `storage/` — all runtime data (gitignored): SQLite DB, PDFs, screenshots, knowledge base JSON

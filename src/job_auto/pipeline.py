@@ -8,7 +8,13 @@ from pathlib import Path
 from typing import Optional
 
 from job_auto.ai.cover_letter import cover_letter_to_markdown, generate_cover_letter
-from job_auto.ai.tailoring import load_base_resume, tailor_resume, tailored_to_markdown
+from job_auto.ai.tailoring import (
+    load_base_resume,
+    merge_tailored_into_base,
+    tailor_resume,
+    tailored_resume_text_for_cover_letter,
+    tailored_to_yaml,
+)
 from job_auto.config import config
 from job_auto.db import repository as repo
 from job_auto.db.session import get_session
@@ -16,7 +22,7 @@ from job_auto.ingestion.generic import get_scraper
 from job_auto.models.application import ApplicationRecord, ApplicationStatus
 from job_auto.models.job_posting import JobBoard, JobPosting
 from job_auto.utils.logging import get_logger
-from job_auto.utils.resume_converter import md_to_pdf
+from job_auto.utils.resume_converter import md_to_pdf, yaml_to_pdf
 
 logger = get_logger(__name__)
 
@@ -229,15 +235,16 @@ class Pipeline:
         with get_session() as session:
             repo.create_application(session, app)
 
-        base_resume = load_base_resume()
+        base_yaml = load_base_resume()
 
-        # Tailor resume
-        tailored = tailor_resume(job, base_resume)
-        tailored_md = tailored_to_markdown(tailored)
-        app.tailored_resume_text = tailored_md
+        # Tailor resume: Claude returns modified cv.sections as JSON
+        tailored_result = tailor_resume(job, base_yaml)
+        merged_dict = merge_tailored_into_base(base_yaml, tailored_result)
+        app.tailored_resume_text = tailored_to_yaml(merged_dict)
 
-        # Generate cover letter
-        letter = generate_cover_letter(job, tailored_md, candidate_name=config.candidate_name)
+        # Generate cover letter using a plain-text extraction of the tailored resume
+        resume_text_for_cl = tailored_resume_text_for_cover_letter(merged_dict)
+        letter = generate_cover_letter(job, resume_text_for_cl, candidate_name=config.candidate_name)
         app.cover_letter_text = cover_letter_to_markdown(letter)
 
         app.status = ApplicationStatus.REVIEW_PENDING if not self.autonomous else ApplicationStatus.QUEUED
@@ -254,7 +261,7 @@ class Pipeline:
 
         if app.tailored_resume_text:
             resume_path = config.resumes_dir / f"{slug}_resume.pdf"
-            md_to_pdf(app.tailored_resume_text, resume_path)
+            yaml_to_pdf(app.tailored_resume_text, resume_path)
             app.resume_path = str(resume_path)
 
         if app.cover_letter_text:

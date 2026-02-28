@@ -72,6 +72,10 @@ class Config(BaseSettings):
         return self.data_dir / "resume.md"
 
     @property
+    def resume_yaml_path(self) -> Path:
+        return self.data_dir / "resume.yaml"
+
+    @property
     def resume_docx_path(self) -> Path:
         return self.data_dir / "resume.docx"
 
