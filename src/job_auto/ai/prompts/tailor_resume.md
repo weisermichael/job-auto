@@ -23,6 +23,9 @@ no markdown fences.
 10. **Preserve YAML structure exactly** — keep all field names (company, position, highlights, label, details, etc.) unchanged. Only modify string values and array contents.
 11. **Include ALL sections** from the base resume in cv_sections — do not silently drop any.
 
+The base resume contains these sections (you must include all of them in
+cv_sections, using exactly these names): **{section_names}**
+
 ## Output JSON Schema
 
 ```
@@ -57,9 +60,9 @@ no markdown fences.
 }
 ```
 
-Note: `cv_sections` must mirror the section names from the base resume exactly. If the base
-resume has additional sections beyond summary/experience/education/skills (e.g. projects), include
-them in cv_sections with appropriate modifications following the same rules.
+Note: `cv_sections` must use exactly the section names listed above in **{section_names}**. The
+schema example above shows common section types — your actual output must match the candidate's
+real section names, not these examples.
 
 ## Inputs
 

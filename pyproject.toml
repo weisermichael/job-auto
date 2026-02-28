@@ -32,7 +32,7 @@ dependencies = [
     "textual>=0.80.0",
     "google-api-python-client>=2.0",
     "google-auth-oauthlib>=1.0",
-    "rendercv[full]>=2.6",
+    "rendercv[full]>=2.3",
 ]
 
 [project.scripts]

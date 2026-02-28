@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -76,8 +77,6 @@ def md_to_pdf(md_text: str, output_path: Path) -> Path:
 
 def yaml_to_pdf(yaml_text: str, output_path: Path) -> Path:
     """Render a rendercv YAML string to PDF and write it to output_path."""
-    import shutil
-
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp = Path(tmp_dir)
@@ -96,7 +95,7 @@ def yaml_to_pdf(yaml_text: str, output_path: Path) -> Path:
             cwd=str(tmp),
         )
         if result.returncode != 0:
-            raise RuntimeError(f"rendercv failed:\n{result.stderr}")
+            raise RuntimeError(f"rendercv failed:\n{result.stdout}")
 
         # rendercv outputs to rendercv_output/{Name}_CV.pdf — find it by glob
         pdfs = list((tmp / "rendercv_output").glob("*.pdf"))
