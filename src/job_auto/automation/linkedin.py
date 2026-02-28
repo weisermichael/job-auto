@@ -97,6 +97,12 @@ class LinkedInApplicator(AbstractApplicator):
 
         if action == "navigate":
             await page.goto(value or context.get("job_url", ""), wait_until="domcontentloaded")
+            # If LinkedIn redirected to login/checkpoint, re-authenticate and retry navigation
+            current_url = page.url
+            if any(p in current_url for p in ("/login", "/checkpoint/", "/challenge/")):
+                logger.warning("linkedin_post_navigate_auth_required", url=current_url)
+                await self.login()
+                await page.goto(value or context.get("job_url", ""), wait_until="domcontentloaded")
 
         elif action == "click":
             await self._smart_click(selector or "")
@@ -204,9 +210,15 @@ class LinkedInApplicator(AbstractApplicator):
             if code:
                 pin_sel = "input[name='pin'], input[id*='verification'], input[id*='code']"
                 await self.page.wait_for_selector(pin_sel, timeout=5000)
-                await human_type(self.page, pin_sel.split(",")[0].strip(), code)
+                await self._smart_fill(pin_sel, code)
                 await self.page.keyboard.press("Enter")
-                await self.page.wait_for_load_state("networkidle")
+                try:
+                    await self.page.wait_for_url(
+                        lambda url: "/checkpoint/" not in url and "/challenge/" not in url,
+                        timeout=15_000,
+                    )
+                except Exception:
+                    pass  # URL check below is the source of truth
             if "/checkpoint/" in self.page.url or "/challenge/" in self.page.url:
                 raise RuntimeError("LinkedIn security verification was not completed")
 

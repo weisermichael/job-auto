@@ -160,12 +160,12 @@ class AbstractApplicator(ABC):
 
         procedure_dict = {}
         if self._procedure:
-            procedure_dict = self._procedure.model_dump()
+            procedure_dict = self._procedure.model_dump(mode="json")
 
         try:
             correction = analyze_failure(
                 error_message=error_msg,
-                failed_step=step.model_dump(),
+                failed_step=step.model_dump(mode="json"),
                 procedure=procedure_dict,
                 dom_snippet=dom_snippet,
                 screenshot_path=screenshot_path,

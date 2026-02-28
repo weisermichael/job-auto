@@ -43,7 +43,7 @@ async def apply_stealth(page: Page) -> None:
 async def human_type(page: Page, selector: str, text: str, delay_range: tuple[int, int] = (50, 150)) -> None:
     """Type text with human-like random delays between keystrokes."""
     await page.click(selector)
-    await page.evaluate(f"document.querySelector('{selector}').value = ''")
+    await page.evaluate("sel => { document.querySelector(sel).value = ''; }", selector)
     for char in text:
         await page.type(selector, char, delay=random.randint(*delay_range))
 
