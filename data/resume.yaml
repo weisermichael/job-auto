@@ -1,33 +1,231 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/rendercv/rendercv/refs/tags/v2.3/schema.json
 cv:
-  name: "Your Name"
-  headline: "Software Engineer"
-  email: "you@example.com"
-  website: "https://yoursite.com"
+  name: Michael Weiser
+  location: Atascadero
+  email: weiserjmichael@gmail.com
+  phone: +1-858-353-5179
+  website:
   social_networks:
     - network: LinkedIn
-      username: yourhandle
-    - network: GitHub
-      username: yourhandle
+      username: michael-j-weiser
   sections:
-    summary:
-      - "Replace this with a 2-3 sentence professional summary."
-    experience:
-      - company: "Your Company"
-        position: "Your Title"
-        start_date: "2022-07"
-        end_date: "present"
-        highlights:
-          - "Replace with your key accomplishments."
     education:
-      - institution: "Your University"
-        area: "Your Major"
-        degree: "BS"
-        start_date: "2018-09"
-        end_date: "2022-05"
+      - institution: Cal Poly SLO
+        area: Electrical Engineering
+        degree: BS
+        grade:
+        date:
+        start_date:
+        end_date: 2022-12
+        location: San Luis Obispo, CA, USA
+        summary:
+        highlights:
+    experience:
+      - company: Sorenson Communications
+        position: Software Test Engineer II
+        date:
+        start_date: 2022-07
+        end_date: present
+        location: Remote
+        summary:
+        highlights:
+          - Develop and maintain API, integration, and smoke tests for VoIP stack components to increase test coverage
+          - Streamlined validation of deployments by augmenting test automation to reduce manual testing required and decrease risk of rollbacks
+          - Integrated test automation in a CI/CD pipeline to reduce deployment time
+          - Automated test run documentation with TestRail CLI to meet regulatory requirements
+          - Implemented IP aliasing and SIP-header anonymization features for SIP Capture to achieve GDPR compliance
+          - Developed and executed load tests of SIP services to debug frequent SIP server crashes
+          - Investigate defects reported by customer service, leverage observability tools to determine cause, and either implement solutions or forward to relevant product team
+          - Participate in an on-call rotation to mitigate disruption for any system being supported by product team
+          - Collaborate across teams to debug SIP flows related to company-wide cloud migration, ensuring minimum downtime and smooth customer experience
+      - company: Roll
+        position: Developer (Freelance)
+        date:
+        start_date: 2022-03
+        end_date: 2022-08
+        location: Remote
+        summary:
+        highlights:
+          - Scripted Node.js service for restaurant POS terminals to capture receipt data and send to backend service in an effort to automate restaurant billing
+          - Expanded API to receive receipt data, parse for information, and pass to downstream services
+          - Implemented parsing logic to extract location, customer, and order information from 6 unique formats of receipts
+          - Designed hardware packet scraping device with Raspberry Pi to make collecting receipt data platform-agnostic
+      - company: Cal Poly Electrical Engineering Dept
+        position: Lab Technician
+        date:
+        start_date: 2018-10
+        end_date: 2020-06
+        location: San Luis Obispo, CA
+        summary:
+        highlights:
+          - Tested and repaired lab equipment including cables, scopes, and meters
+          - Tracked inventory, documented and reported missing or damaged equipment
+          - Prepared classrooms for weekly labs
+          - Miscellaneous duties; assisted professors and students as required
+    projects:
+      - name: '[Vera](https://github.com/CS-Social-Good-CalPoly/Vera)'
+        date:
+        start_date:
+        end_date:
+        location:
+        summary:
+        highlights:
+          - Contributed component implementation, backend routing, and database design
+          - Participated in code reviews and design discussions
+          - Mentored less experienced project members
     skills:
-      - label: "Languages"
-        details: "Python, TypeScript"
-      - label: "Cloud & CI/CD"
-        details: "AWS, GitHub Actions"
+      - label: Languages
+        details: 'C#, TypeScript, Python, Bash, C++, C'
+      - label: Cloud and CI/CD
+        details: 'AWS, GitHub Actions, Terraform, Ansible'
+      - label: Testing
+        details: 'NUnit, Playwright, Jest, TestRail, Postman'
+      - label: Other Technologies
+        details: 'WebRTC, Wireshark, FreeSWITCH'
+      - label: Business Tools
+        details: 'Outlook, Teams, Jira/Confluence'
+  sort_entries: none
 design:
   theme: engineeringresumes
+  page:
+    size: us-letter
+    top_margin: 2cm
+    bottom_margin: 2cm
+    left_margin: 2cm
+    right_margin: 2cm
+    show_page_numbering: false
+    show_last_updated_date: true
+  colors:
+    text: rgb(0, 0, 0)
+    name: rgb(0, 0, 0)
+    connections: rgb(0, 0, 0)
+    section_titles: rgb(0, 0, 0)
+    links: rgb(0, 0, 0)
+    last_updated_date_and_page_numbering: rgb(128, 128, 128)
+  text:
+    font_family: XCharter
+    font_size: 10pt
+    leading: 0.6em
+    alignment: justified
+    date_and_location_column_alignment: right
+  links:
+    underline: true
+    use_external_link_icon: false
+  header:
+    name_font_family: XCharter
+    name_font_size: 25pt
+    name_bold: false
+    small_caps_for_name: false
+    photo_width: 3.5cm
+    vertical_space_between_name_and_connections: 0.7cm
+    vertical_space_between_connections_and_first_section: 0.7cm
+    horizontal_space_between_connections: 0.5cm
+    connections_font_family: XCharter
+    separator_between_connections: '|'
+    use_icons_for_connections: false
+    use_urls_as_placeholders_for_connections: true
+    make_connections_links: true
+    alignment: center
+  section_titles:
+    type: with-full-line
+    font_family: XCharter
+    font_size: 1.2em
+    bold: true
+    small_caps: false
+    line_thickness: 0.5pt
+    vertical_space_above: 0.55cm
+    vertical_space_below: 0.3cm
+  entries:
+    date_and_location_width: 4.15cm
+    left_and_right_margin: 0cm
+    horizontal_space_between_columns: 0.1cm
+    vertical_space_between_entries: 0.4cm
+    allow_page_break_in_sections: true
+    allow_page_break_in_entries: true
+    short_second_row: false
+    show_time_spans_in: []
+  highlights:
+    bullet: •
+    nested_bullet: '-'
+    top_margin: 0.25cm
+    left_margin: 0cm
+    vertical_space_between_highlights: 0.19cm
+    horizontal_space_between_bullet_and_highlight: 0.3em
+    summary_left_margin: 0cm
+  entry_types:
+    one_line_entry:
+      template: '**LABEL:** DETAILS'
+    education_entry:
+      main_column_first_row_template: '**INSTITUTION**, DEGREE in AREA -- LOCATION'
+      degree_column_template:
+      degree_column_width: 1cm
+      main_column_second_row_template: |-
+        SUMMARY
+        HIGHLIGHTS
+      date_and_location_column_template: DATE
+    normal_entry:
+      main_column_first_row_template: '**NAME** -- **LOCATION**'
+      main_column_second_row_template: |-
+        SUMMARY
+        HIGHLIGHTS
+      date_and_location_column_template: DATE
+    experience_entry:
+      main_column_first_row_template: '**POSITION**, COMPANY -- LOCATION'
+      main_column_second_row_template: |-
+        SUMMARY
+        HIGHLIGHTS
+      date_and_location_column_template: DATE
+    publication_entry:
+      main_column_first_row_template: '**TITLE**'
+      main_column_second_row_template: |-
+        AUTHORS
+        URL (JOURNAL)
+      main_column_second_row_without_journal_template: |-
+        AUTHORS
+        URL
+      main_column_second_row_without_url_template: |-
+        AUTHORS
+        JOURNAL
+      date_and_location_column_template: DATE
+locale:
+  language: en
+  phone_number_format: national
+  page_numbering_template: NAME - Page PAGE_NUMBER of TOTAL_PAGES
+  last_updated_date_template: Last updated in TODAY
+  date_template: MONTH_ABBREVIATION YEAR
+  month: month
+  months: months
+  year: year
+  years: years
+  present: present
+  to: –
+  abbreviations_for_months:
+    - Jan
+    - Feb
+    - Mar
+    - Apr
+    - May
+    - June
+    - July
+    - Aug
+    - Sept
+    - Oct
+    - Nov
+    - Dec
+  full_names_of_months:
+    - January
+    - February
+    - March
+    - April
+    - May
+    - June
+    - July
+    - August
+    - September
+    - October
+    - November
+    - December
+rendercv_settings:
+  date: '2026-02-27'
+  bold_keywords: []
+  sort_entries: none
