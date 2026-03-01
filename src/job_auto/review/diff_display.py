@@ -109,6 +109,10 @@ def review_application(
 
     if app.tailored_resume_text:
         display_resume_diff(_sections_yaml(base_resume), _sections_yaml(app.tailored_resume_text))
+    else:
+        console.print(Rule("[bold]Resume[/bold]", style="yellow"))
+        console.print(f"  Using base resume: [cyan]{app.resume_path}[/cyan]")
+        console.print("  (No tailoring — run with [bold]--tailor[/bold] to customise)\n")
 
     if app.cover_letter_text:
         display_cover_letter(app.cover_letter_text)

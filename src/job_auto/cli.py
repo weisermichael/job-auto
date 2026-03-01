@@ -46,11 +46,12 @@ def cli() -> None:
 @click.argument("url")
 @click.option("--auto", is_flag=True, help="Skip human review and submit immediately")
 @click.option("--dry-run", is_flag=True, help="Run pipeline without submitting the form")
-def apply(url: str, auto: bool, dry_run: bool) -> None:
+@click.option("--tailor", "-t", is_flag=True, help="Use Claude to tailor resume and generate cover letter")
+def apply(url: str, auto: bool, dry_run: bool, tailor: bool) -> None:
     """Apply to a single job posting at URL."""
     from job_auto.pipeline import Pipeline, PipelineError
 
-    pipeline = Pipeline(autonomous=auto or config.autonomous_mode)
+    pipeline = Pipeline(autonomous=auto or config.autonomous_mode, tailor=tailor)
 
     async def _run():
         try:
@@ -73,8 +74,9 @@ def apply(url: str, auto: bool, dry_run: bool) -> None:
 @cli.command("apply-all")
 @click.option("--limit", "-n", default=10, show_default=True, help="Max jobs to process")
 @click.option("--auto", is_flag=True, help="Skip human review before submitting")
-@click.option("--dry-run", is_flag=True, help="Tailor and review but do not submit forms")
-def apply_all(limit: int, auto: bool, dry_run: bool) -> None:
+@click.option("--dry-run", is_flag=True, help="Prepare and review but do not submit forms")
+@click.option("--tailor", "-t", is_flag=True, help="Use Claude to tailor resume and generate cover letter")
+def apply_all(limit: int, auto: bool, dry_run: bool, tailor: bool) -> None:
     """Apply to all scanned-but-unapplied jobs stored in the database.
 
     \b
@@ -82,10 +84,11 @@ def apply_all(limit: int, auto: bool, dry_run: bool) -> None:
       job-auto scan indeed -q "Site Reliability Engineer"
       job-auto apply-all --limit 5          # review each before submitting
       job-auto apply-all --limit 5 --auto   # submit without review
+      job-auto apply-all --limit 5 --tailor # tailor resume for each job
     """
     from job_auto.pipeline import Pipeline, PipelineError
 
-    pipeline = Pipeline(autonomous=auto or config.autonomous_mode)
+    pipeline = Pipeline(autonomous=auto or config.autonomous_mode, tailor=tailor)
 
     async def _run():
         apps = await pipeline.apply_all_queued(limit=limit, dry_run=dry_run)

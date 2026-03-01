@@ -34,8 +34,9 @@ class PipelineError(Exception):
 class Pipeline:
     """End-to-end job application orchestrator."""
 
-    def __init__(self, autonomous: Optional[bool] = None) -> None:
+    def __init__(self, autonomous: Optional[bool] = None, tailor: bool = False) -> None:
         self.autonomous = autonomous if autonomous is not None else config.autonomous_mode
+        self.tailor = tailor
 
     # ──────────────────────────────────────────────────────────
     # Public API
@@ -70,11 +71,12 @@ class Pipeline:
             else:
                 repo.upsert_job(session, job)
 
-        # 3. TAILOR
-        application = await self._tailor(job)
-
-        # 4. RENDER PDFs
-        application = self._render_pdfs(job, application)
+        # 3. TAILOR or prepare base documents
+        if self.tailor:
+            application = await self._tailor(job)
+            application = self._render_pdfs(job, application)
+        else:
+            application = await self._prepare_default_documents(job)
 
         # 5. REVIEW (if not autonomous)
         if not self.autonomous:
@@ -130,8 +132,11 @@ class Pipeline:
                 "Try again tomorrow."
             )
 
-        application = await self._tailor(job)
-        application = self._render_pdfs(job, application)
+        if self.tailor:
+            application = await self._tailor(job)
+            application = self._render_pdfs(job, application)
+        else:
+            application = await self._prepare_default_documents(job)
 
         if not self.autonomous:
             application = self._review(job, application)
@@ -256,6 +261,36 @@ class Pipeline:
         scraper = get_scraper(url)
         async with scraper:
             return await scraper.parse(url)
+
+    async def _prepare_default_documents(self, job: JobPosting) -> ApplicationRecord:
+        """Create an ApplicationRecord using the cached base-resume PDF (no AI calls)."""
+        app = ApplicationRecord(
+            id=uuid.uuid4().hex[:12],
+            job_id=job.id,
+            status=ApplicationStatus.REVIEW_PENDING if not self.autonomous else ApplicationStatus.QUEUED,
+            autonomous_mode=self.autonomous,
+            created_at=datetime.utcnow(),
+        )
+
+        # Cached base PDF — regenerate only when resume.yaml is newer
+        cached_pdf = config.resumes_dir / "base_resume.pdf"
+        yaml_path = config.resume_yaml_path
+        needs_render = (
+            not cached_pdf.exists()
+            or yaml_path.stat().st_mtime > cached_pdf.stat().st_mtime
+        )
+        if needs_render:
+            logger.info("rendering_base_resume_pdf", path=str(cached_pdf))
+            yaml_text = load_base_resume()
+            yaml_to_pdf(yaml_text, cached_pdf)
+
+        app.resume_path = str(cached_pdf)
+
+        with get_session() as session:
+            repo.create_application(session, app)
+
+        logger.info("default_documents_ready", app_id=app.id, resume=str(cached_pdf))
+        return app
 
     async def _tailor(self, job: JobPosting) -> ApplicationRecord:
         """Run AI tailoring and create the ApplicationRecord."""
