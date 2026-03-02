@@ -195,13 +195,17 @@ class LinkedInApplicator(AbstractApplicator):
         if not config.linkedin_email:
             raise RuntimeError("LinkedIn credentials not configured in .env")
 
-        await self.page.goto("https://www.linkedin.com/login", wait_until="networkidle")
-        await human_type(self.page, "#username", config.linkedin_email)
+        await self.page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
+        # Wait for either the standard form (#username + #password) or the
+        # "Welcome back" form (only #password, email pre-filled from li_rm cookie).
+        await self.page.wait_for_selector("#username, #password", timeout=15_000)
+        if await self.page.query_selector("#username"):
+            await human_type(self.page, "#username", config.linkedin_email)
         await human_type(
             self.page, "#password", config.linkedin_password.get_secret_value()
         )
         await self.page.click("button[type='submit']")
-        await self.page.wait_for_load_state("networkidle")
+        await self.page.wait_for_load_state("load")
 
         # Stage 3 — Challenge handling
         if "/checkpoint/" in self.page.url or "/challenge/" in self.page.url:
