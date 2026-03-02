@@ -37,7 +37,7 @@ _DEFAULT_PROCEDURE = ApplicationProcedure(
             order=2,
             description="Click Easy Apply button",
             action="click",
-            selector=".jobs-apply-button--top-card, button[aria-label*='Easy Apply']",
+            selector="a[aria-label*='Easy Apply'], .jobs-apply-button--top-card, button[aria-label*='Easy Apply']",
             wait_after_ms=1500,
         ),
         ProcedureStep(
@@ -47,6 +47,7 @@ _DEFAULT_PROCEDURE = ApplicationProcedure(
             selector="input[type='file']",
             value="{{resume_path}}",
             wait_after_ms=2000,
+            optional=True,
         ),
         ProcedureStep(
             order=4,
@@ -73,7 +74,7 @@ _DEFAULT_PROCEDURE = ApplicationProcedure(
         ),
     ],
     selectors={
-        "easy_apply_btn": FormSelector(css=".jobs-apply-button--top-card"),
+        "easy_apply_btn": FormSelector(css="a[aria-label*='Easy Apply'], .jobs-apply-button--top-card, button[aria-label*='Easy Apply']"),
         "file_upload": FormSelector(css="input[type='file']"),
         "submit_btn": FormSelector(css="button[aria-label='Submit application']"),
         "next_btn": FormSelector(css="footer button.artdeco-button--primary"),
@@ -96,13 +97,22 @@ class LinkedInApplicator(AbstractApplicator):
         value = step.render_value(context)
 
         if action == "navigate":
-            await page.goto(value or context.get("job_url", ""), wait_until="domcontentloaded")
+            await page.goto(value or context.get("job_url", ""), wait_until="load")
             # If LinkedIn redirected to login/checkpoint, re-authenticate and retry navigation
             current_url = page.url
             if any(p in current_url for p in ("/login", "/checkpoint/", "/challenge/")):
                 logger.warning("linkedin_post_navigate_auth_required", url=current_url)
                 await self.login()
-                await page.goto(value or context.get("job_url", ""), wait_until="domcontentloaded")
+                await page.goto(value or context.get("job_url", ""), wait_until="load")
+            # Dismiss any contextual sign-in modal that LinkedIn injects and blocks UI interaction.
+            # The modal is activated by JavaScript that runs after the load event, so wait for it.
+            try:
+                dismiss_sel = "button.modal__dismiss, button[aria-label='Dismiss']"
+                await page.wait_for_selector(dismiss_sel, state="visible", timeout=5000)
+                await page.click(dismiss_sel, timeout=3000)
+                logger.info("linkedin_signin_modal_dismissed")
+            except Exception:
+                pass  # modal not present
 
         elif action == "click":
             await self._smart_click(selector or "")
@@ -119,7 +129,30 @@ class LinkedInApplicator(AbstractApplicator):
                 if step.optional:
                     return True
                 raise FileNotFoundError(f"Resume file not found: {value}")
-            await page.set_input_files(selector or "input[type='file']", value)
+            upload_sel = selector or "input[type='file']"
+            next_sel = (
+                "button[aria-label='Continue to next step'], "
+                "button[aria-label='Review your application'], "
+                "footer button.artdeco-button--primary"
+            )
+            # LinkedIn's Easy Apply modal shows Contact Info first; navigate pages
+            # until a file upload input appears, then upload.
+            uploaded = False
+            for _ in range(5):
+                try:
+                    await page.wait_for_selector(upload_sel, timeout=3000)
+                    await page.set_input_files(upload_sel, value)
+                    uploaded = True
+                    break
+                except Exception:
+                    try:
+                        await page.wait_for_selector(next_sel, timeout=2000)
+                        await human_move_and_click(page, next_sel)
+                        await asyncio.sleep(random.uniform(1.0, 2.0))
+                    except Exception:
+                        break
+            if not uploaded and not step.optional:
+                raise FileNotFoundError(f"Resume upload field not found: {upload_sel}")
 
         elif action == "submit":
             # Handle multi-page LinkedIn Easy Apply forms

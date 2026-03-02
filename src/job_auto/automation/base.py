@@ -140,7 +140,10 @@ class AbstractApplicator(ABC):
                     return ApplicationResult(success=False, message=abort_reason)
 
                 if correction:
-                    await self._apply_correction(correction, context)
+                    try:
+                        await self._apply_correction(correction, context)
+                    except Exception as heal_err:
+                        logger.warning("self_heal_correction_failed", error=str(heal_err)[:200])
 
                 # Random back-off before retry
                 await asyncio.sleep(random.uniform(1, 3))

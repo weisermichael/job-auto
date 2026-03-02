@@ -147,3 +147,63 @@ Use Pydantic v2's JSON-serialization mode, which converts `datetime` → ISO 860
 ```python
 procedure_dict = self._procedure.model_dump(mode="json")
 ```
+
+---
+
+## BUG-004 — Self-Heal `_apply_correction` Crashes Uncaught, Killing the Process
+
+**Status:** Open
+**Affected file:** `src/job_auto/automation/base.py` — `AbstractApplicator._run_step_with_healing()`
+
+### Description
+
+When a step fails and self-heal returns a corrective action, `_apply_correction()` is called
+**inside the `except` block but not wrapped in its own try/except**. If the corrective action
+itself raises (e.g., a Playwright 30 s timeout on the suggested click selector), the exception
+propagates uncaught all the way out of `_run_step_with_healing` → `submit` → `pipeline.apply`,
+where it surfaces as a bare "Unexpected error" traceback instead of a recorded `FAILED`
+application.
+
+### Steps to Reproduce
+
+1. Run `job-auto apply --auto <url>` against a job where step 2 (click Easy Apply) fails.
+2. Self-heal is triggered; Claude returns a corrective `click` action with a broad selector.
+3. `_apply_correction` calls `await self.page.click(selector)` with Playwright's default 30 s
+   timeout.
+4. The click times out → `PlaywrightTimeoutError` raised inside the `except` block.
+5. Exception propagates uncaught; CLI prints "Unexpected error" and exits with code 1.
+6. The application record is left in `SUBMITTING` (see also BUG-001).
+
+### Expected Result
+
+The timeout from `_apply_correction` is caught; the attempt is logged as a failure; the retry
+loop continues or the application is marked `FAILED` through the normal path.
+
+### Actual Result
+
+The process crashes with a raw `PlaywrightTimeoutError` traceback. No failure is recorded in
+the DB via the normal path; the application is orphaned in `SUBMITTING` status.
+
+### Root Cause
+
+`base.py` lines ~142-146:
+```python
+except (PlaywrightTimeout, Exception) as e:
+    ...
+    if correction:
+        await self._apply_correction(correction, context)  # not in a try/except
+    await asyncio.sleep(random.uniform(1, 3))
+```
+Any exception raised by `_apply_correction` escapes the loop entirely.
+
+### Proposed Fix
+
+Wrap the call in its own try/except and log + continue on failure:
+
+```python
+if correction:
+    try:
+        await self._apply_correction(correction, context)
+    except Exception as heal_err:
+        logger.warning("self_heal_correction_failed", error=str(heal_err)[:200])
+```
