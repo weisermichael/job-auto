@@ -63,7 +63,9 @@ class Pipeline:
                 job = existing_job  # use the canonical DB record (correct ID)
                 existing_app = repo.get_application_by_job(session, job.id)
                 if existing_app and existing_app.status not in {
-                    ApplicationStatus.FAILED, ApplicationStatus.REVIEW_REJECTED
+                    ApplicationStatus.FAILED,
+                    ApplicationStatus.REVIEW_REJECTED,
+                    ApplicationStatus.SUBMITTING,  # stuck due to crash — allow retry
                 }:
                     logger.info("duplicate_skip", url=url)
                     return existing_app
@@ -118,7 +120,9 @@ class Pipeline:
         with get_session() as session:
             existing = repo.get_application_by_job(session, job.id)
         if existing and existing.status not in {
-            ApplicationStatus.FAILED, ApplicationStatus.REVIEW_REJECTED
+            ApplicationStatus.FAILED,
+            ApplicationStatus.REVIEW_REJECTED,
+            ApplicationStatus.SUBMITTING,  # stuck due to crash — allow retry
         }:
             logger.info("already_applied_skip", job_id=job.id, status=existing.status)
             return existing
@@ -374,24 +378,30 @@ class Pipeline:
             repo.update_application(session, app)
 
         session_path = config.linkedin_session_path if board == "linkedin" else None
-        async with async_playwright() as pw:
-            async with browser_context(pw, storage_state_path=session_path) as (_, context):
-                async with new_page(context) as page:
-                    applicator = applicator_class(page)
+        try:
+            async with async_playwright() as pw:
+                async with browser_context(pw, storage_state_path=session_path) as (_, context):
+                    async with new_page(context) as page:
+                        applicator = applicator_class(page)
 
-                    # Log in if LinkedIn
-                    if board == "linkedin" and hasattr(applicator, "login"):
-                        await applicator.login()
+                        # Log in if LinkedIn
+                        if board == "linkedin" and hasattr(applicator, "login"):
+                            await applicator.login()
 
-                    result = await applicator.submit(job, app)
-                    if result.success:
-                        app.status = ApplicationStatus.SUBMITTED
-                    else:
-                        app.status = ApplicationStatus.FAILED
-                        app.last_failure_reason = result.message
-
-        with get_session() as session:
-            repo.update_application(session, app)
+                        result = await applicator.submit(job, app)
+                        if result.success:
+                            app.status = ApplicationStatus.SUBMITTED
+                        else:
+                            app.status = ApplicationStatus.FAILED
+                            app.last_failure_reason = result.message
+        except Exception:
+            # Ensure status never stays stuck at SUBMITTING if something crashes
+            if app.status == ApplicationStatus.SUBMITTING:
+                app.status = ApplicationStatus.FAILED
+            raise
+        finally:
+            with get_session() as session:
+                repo.update_application(session, app)
 
         return app
 
