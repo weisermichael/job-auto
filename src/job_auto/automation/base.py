@@ -132,18 +132,17 @@ class AbstractApplicator(ABC):
 
                     return ApplicationResult(success=False, message=error_msg)
 
-                # Self-heal: ask Claude what to do
-                correction = await self._self_heal(step, error_msg, application)
-                if correction and correction.get("step_to_retry", -1) == -1:
-                    abort_reason = correction.get("abort_reason", "AI decided to abort")
-                    logger.info("self_heal_abort", reason=abort_reason)
-                    return ApplicationResult(success=False, message=abort_reason)
-
-                if correction:
-                    try:
-                        await self._apply_correction(correction, context)
-                    except Exception as heal_err:
-                        logger.warning("self_heal_correction_failed", error=str(heal_err)[:200])
+                # Self-heal disabled for debugging — TODO: re-enable once stable
+                # correction = await self._self_heal(step, error_msg, application)
+                # if correction and correction.get("step_to_retry", -1) == -1:
+                #     abort_reason = correction.get("abort_reason", "AI decided to abort")
+                #     logger.info("self_heal_abort", reason=abort_reason)
+                #     return ApplicationResult(success=False, message=abort_reason)
+                # if correction:
+                #     try:
+                #         await self._apply_correction(correction, context)
+                #     except Exception as heal_err:
+                #         logger.warning("self_heal_correction_failed", error=str(heal_err)[:200])
 
                 # Random back-off before retry
                 await asyncio.sleep(random.uniform(1, 3))
