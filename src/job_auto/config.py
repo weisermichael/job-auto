@@ -80,6 +80,10 @@ class Config(BaseSettings):
         return self.data_dir / "resume.docx"
 
     @property
+    def profile_path(self) -> Path:
+        return self.data_dir / "profile.yaml"
+
+    @property
     def criteria_path(self) -> Path:
         return self.data_dir / "criteria.yaml"
 

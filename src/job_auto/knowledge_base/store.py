@@ -131,6 +131,17 @@ class KnowledgeBaseStore:
         raw = self.get_raw(board)
         return raw.get("ai_notes", []) if raw else []
 
+    def get_qa_cache(self, board: str) -> dict[str, str]:
+        raw = self.get_raw(board)
+        return dict(raw.get("qa_cache", {})) if raw else {}
+
+    def set_qa_answer(self, board: str, key: str, answer: str) -> None:
+        with self._lock:
+            self._load()
+            self._data.setdefault(board, {}).setdefault("qa_cache", {})[key] = answer
+            self._data[board]["last_updated"] = datetime.utcnow().isoformat()
+            self._save_unlocked()
+
     def get_failure_patches(self, board: str) -> dict[str, Any]:
         raw = self.get_raw(board)
         return raw.get("failure_patches", {}) if raw else {}
