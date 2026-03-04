@@ -22,6 +22,15 @@ logger = get_logger(__name__)
 
 _MODAL_CSS = ".jobs-easy-apply-modal"
 
+
+class UnansweredQuestionsError(Exception):
+    """Raised when required form fields cannot be answered from profile or Q&A cache."""
+
+    def __init__(self, message: str, questions: list[dict], job_url: str = "") -> None:
+        super().__init__(message)
+        self.questions = questions
+        self.job_url = job_url
+
 # ---------------------------------------------------------------------------
 # JS helpers — verbatim from scripts/observe_easy_apply.py
 # ---------------------------------------------------------------------------
@@ -393,9 +402,16 @@ async def _fill_questions(
     fields: list[dict],
     profile: CandidateProfile,
     qa_cache: dict[str, str],
-) -> dict[str, str]:
-    """Fill question fields. Returns dict of newly derived {key: answer} for caching."""
+) -> tuple[dict[str, str], list[dict]]:
+    """Fill question fields.
+
+    Returns:
+        (new_answers, unanswered) where new_answers is a dict of newly derived
+        {key: answer} for caching, and unanswered is a list of required fields
+        that could not be answered from the profile or cache.
+    """
     new_answers: dict[str, str] = {}
+    unanswered: list[dict] = []
 
     for field in fields:
         label = field["label"]
@@ -427,7 +443,7 @@ async def _fill_questions(
             elif "sponsorship" in label_lower and ftype in ("radio", "select"):
                 answer = profile.work_authorization.requires_sponsorship
             else:
-                answer = None  # leave empty; validation will catch required fields
+                answer = None
 
         if answer:
             new_answers[cache_key] = answer
@@ -455,8 +471,15 @@ async def _fill_questions(
                 else:
                     await loc.first.clear()
                     await loc.first.type(answer, delay=random.randint(30, 80))
+        elif field.get("required"):
+            # Required field with no answer — record for the user to provide later
+            unanswered.append({
+                "label": label,
+                "type": ftype,
+                "options": field.get("options", []),
+            })
 
-    return new_answers
+    return new_answers, unanswered
 
 
 async def _fill_review(page: Page, modal, fields: list[dict], profile: CandidateProfile) -> None:
@@ -488,10 +511,16 @@ async def _fill_page(
     profile: CandidateProfile,
     context: dict,
     qa_cache: dict[str, str],
-) -> dict[str, str]:
-    """Fill one modal page. Returns newly derived Q&A answers."""
+) -> tuple[dict[str, str], list[dict]]:
+    """Fill one modal page.
+
+    Returns:
+        (new_answers, unanswered) where unanswered lists required fields that
+        could not be answered (only populated for QUESTIONS / UNKNOWN pages).
+    """
     fields = page_data.get("fields", [])
     new_answers: dict[str, str] = {}
+    unanswered: list[dict] = []
 
     if page_type == PageType.CONTACT:
         await _fill_contact(page, modal, fields, profile)
@@ -501,19 +530,16 @@ async def _fill_page(
         await _fill_resume(page, modal, fields, profile, context)
     elif page_type == PageType.WORK_AUTH:
         await _fill_work_auth(page, modal, fields, profile)
-    elif page_type == PageType.QUESTIONS:
-        new_answers = await _fill_questions(page, modal, fields, profile, qa_cache)
+    elif page_type in (PageType.QUESTIONS, PageType.UNKNOWN):
+        new_answers, unanswered = await _fill_questions(page, modal, fields, profile, qa_cache)
     elif page_type == PageType.REVIEW:
         await _fill_review(page, modal, fields, profile)
     elif page_type == PageType.TOP_CHOICE:
         await _fill_top_choice(page, modal, fields, profile)
     elif page_type == PageType.CONFIRMATION:
         pass  # Nothing to fill
-    else:
-        # UNKNOWN — attempt questions filler as best effort
-        new_answers = await _fill_questions(page, modal, fields, profile, qa_cache)
 
-    return new_answers
+    return new_answers, unanswered
 
 
 # ---------------------------------------------------------------------------
@@ -553,7 +579,9 @@ async def handle_easy_apply_modal(
             field_count=len(page_data.get("fields", [])),
         )
 
-        new_answers = await _fill_page(page, modal, page_data, page_type, profile, context, qa_cache)
+        new_answers, unanswered = await _fill_page(
+            page, modal, page_data, page_type, profile, context, qa_cache
+        )
 
         # Persist newly derived Q&A answers
         for key, answer in new_answers.items():
@@ -564,6 +592,27 @@ async def handle_easy_apply_modal(
             logger.info("easy_apply_confirmed")
             confirmed = True
             break
+
+        # If required questions have no answers, record them and abort.
+        # The user can add answers to data/profile.yaml or the KB Q&A cache,
+        # then re-run to submit the application.
+        if unanswered:
+            job_url = context.get("job_url", "")
+            kb_store.record_pending_questions("linkedin", job_url, unanswered)
+            labels = [q["label"] for q in unanswered]
+            logger.warning(
+                "unanswered_required_questions",
+                count=len(unanswered),
+                labels=labels,
+                job_url=job_url,
+            )
+            raise UnansweredQuestionsError(
+                f"Cannot answer {len(unanswered)} required question(s): {labels}. "
+                f"Add answers to data/profile.yaml or the knowledge base Q&A cache "
+                f"(storage/knowledge_base.json → linkedin.qa_cache), then re-run.",
+                questions=unanswered,
+                job_url=job_url,
+            )
 
         # Small human-like pause after filling
         await asyncio.sleep(random.uniform(0.5, 1.0))
@@ -594,15 +643,19 @@ async def handle_easy_apply_modal(
                 raise RuntimeError(f"Form validation failed: {errors}")
             raise
 
-        await asyncio.sleep(random.uniform(1.0, 2.0))
+        # Poll up to 6 s for the page signature to change (LinkedIn transitions can be slow)
+        sig_after = sig_before
+        for _ in range(12):
+            await asyncio.sleep(0.5)
+            if await page.locator(_MODAL_CSS).count() == 0:
+                raise RuntimeError(
+                    f"Easy Apply modal closed unexpectedly after Next click "
+                    f"(page {page_num}: {page_data.get('page_title', '')})"
+                )
+            sig_after = await modal.evaluate(_SIGNATURE_JS)
+            if sig_after != sig_before:
+                break
 
-        # Detect stuck page — if modal signature didn't change, Next was rejected
-        if await page.locator(_MODAL_CSS).count() == 0:
-            raise RuntimeError(
-                f"Easy Apply modal closed unexpectedly after Next click "
-                f"(page {page_num}: {page_data.get('page_title', '')})"
-            )
-        sig_after = await modal.evaluate(_SIGNATURE_JS)
         if sig_after == sig_before:
             errors = await modal.locator(".artdeco-inline-feedback--error").all_text_contents()
             raise RuntimeError(

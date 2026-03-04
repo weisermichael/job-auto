@@ -142,6 +142,18 @@ class KnowledgeBaseStore:
             self._data[board]["last_updated"] = datetime.utcnow().isoformat()
             self._save_unlocked()
 
+    def record_pending_questions(self, board: str, job_url: str, questions: list[dict]) -> None:
+        """Persist unanswered required questions keyed by job URL for later review."""
+        with self._lock:
+            self._load()
+            self._data.setdefault(board, {}).setdefault("pending_questions", {})[job_url] = questions
+            self._data[board]["last_updated"] = datetime.utcnow().isoformat()
+            self._save_unlocked()
+
+    def get_pending_questions(self, board: str, job_url: str) -> list[dict]:
+        raw = self.get_raw(board)
+        return list(raw.get("pending_questions", {}).get(job_url, [])) if raw else []
+
     def get_failure_patches(self, board: str) -> dict[str, Any]:
         raw = self.get_raw(board)
         return raw.get("failure_patches", {}) if raw else {}

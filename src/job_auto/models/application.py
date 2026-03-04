@@ -23,6 +23,7 @@ class ApplicationStatus(StrEnum):
     SUBMITTING = "submitting"
     SUBMITTED = "submitted"
     FAILED = "failed"
+    NEEDS_ANSWERS = "needs_answers"
     RETRY = "retry"
     RESPONDED = "responded"
     INTERVIEWING = "interviewing"
