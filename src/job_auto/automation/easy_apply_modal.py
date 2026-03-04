@@ -529,6 +529,7 @@ async def handle_easy_apply_modal(
     """Drive the LinkedIn Easy Apply modal from first page through submission."""
     modal = page.locator(_MODAL_CSS).first
     qa_cache = kb_store.get_qa_cache("linkedin")
+    confirmed = False
 
     for page_num in range(12):  # max pages
         # Wait for interactive elements to render
@@ -561,6 +562,7 @@ async def handle_easy_apply_modal(
 
         if page_type == PageType.CONFIRMATION:
             logger.info("easy_apply_confirmed")
+            confirmed = True
             break
 
         # Small human-like pause after filling
@@ -574,6 +576,9 @@ async def handle_easy_apply_modal(
             await human_move_and_click(page, submit_sel)
             await asyncio.sleep(2)
             continue  # capture confirmation page on next iteration
+
+        # Capture signature before clicking Next to detect stuck pages
+        sig_before = await modal.evaluate(_SIGNATURE_JS)
 
         # Click Next / Review
         next_sel = (
@@ -590,3 +595,23 @@ async def handle_easy_apply_modal(
             raise
 
         await asyncio.sleep(random.uniform(1.0, 2.0))
+
+        # Detect stuck page — if modal signature didn't change, Next was rejected
+        if await page.locator(_MODAL_CSS).count() == 0:
+            raise RuntimeError(
+                f"Easy Apply modal closed unexpectedly after Next click "
+                f"(page {page_num}: {page_data.get('page_title', '')})"
+            )
+        sig_after = await modal.evaluate(_SIGNATURE_JS)
+        if sig_after == sig_before:
+            errors = await modal.locator(".artdeco-inline-feedback--error").all_text_contents()
+            raise RuntimeError(
+                f"Modal page did not advance after Next click "
+                f"(page {page_num}: {page_data.get('page_title', '')}). "
+                f"Validation errors: {errors or 'none visible'}"
+            )
+
+    if not confirmed:
+        raise RuntimeError(
+            f"Easy Apply modal exited after {page_num + 1} pages without reaching confirmation"
+        )
