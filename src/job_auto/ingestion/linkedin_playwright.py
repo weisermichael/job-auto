@@ -72,7 +72,7 @@ class LinkedInPlaywrightScraper:
     async def parse(self, url: str) -> JobPosting:
         """Navigate to a LinkedIn job URL and return a JobPosting."""
         assert self._page is not None, "Use as async context manager"
-        await self._page.goto(url, wait_until="domcontentloaded")
+        await self._page.goto(url, wait_until="load")
         html = await self._page.content()
         soup = BeautifulSoup(html, "lxml")
         return extract_job(soup, url)
@@ -115,15 +115,15 @@ class LinkedInPlaywrightScraper:
             await self._page.goto(search_url, wait_until="domcontentloaded")
             try:
                 await self._page.wait_for_selector(
-                    ".jobs-search-results-list, .scaffold-layout__list-container",
+                    "div.job-card-container, li.scaffold-layout__list-item",
                     timeout=15_000,
                 )
             except Exception:
                 logger.warning("linkedin_playwright_no_results_container", url=search_url)
                 break
 
-            # Allow JS rendering to settle
-            await asyncio.sleep(2)
+            # Allow JS rendering to settle after domcontentloaded
+            await asyncio.sleep(3)
 
             html = await self._page.content()
             soup = BeautifulSoup(html, "lxml")
