@@ -108,11 +108,19 @@ class GenericScraper(AbstractScraper):
         return parsed.netloc.replace("www.", "")
 
 
-def get_scraper(url: str) -> AbstractScraper:
-    """Return the most appropriate scraper for the given URL."""
+def get_scraper(url: str, use_playwright: bool = False) -> AbstractScraper:
+    """Return the most appropriate scraper for the given URL.
+
+    Pass use_playwright=True to get the authenticated Playwright-based
+    LinkedIn scraper instead of the default public httpx scraper.
+    """
     from job_auto.ingestion.indeed import IndeedScraper
     from job_auto.ingestion.linkedin import LinkedInScraper
     from job_auto.ingestion.nodesk import NodeskScraper
+
+    if use_playwright and "linkedin.com" in url:
+        from job_auto.ingestion.linkedin_playwright import LinkedInPlaywrightScraper
+        return LinkedInPlaywrightScraper()  # type: ignore[return-value]
 
     for scraper_cls in [LinkedInScraper, IndeedScraper, NodeskScraper]:
         if scraper_cls.can_handle(url):
