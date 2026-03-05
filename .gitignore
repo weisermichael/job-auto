@@ -5,6 +5,9 @@
 # Runtime storage (never commit)
 storage/
 
+# Utility scripts
+scripts/
+
 # Python
 __pycache__/
 *.py[cod]
