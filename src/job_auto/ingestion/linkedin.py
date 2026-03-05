@@ -107,12 +107,16 @@ class LinkedInScraper(AbstractScraper):
         )
         description = description_el.get_text(" ", strip=True) if description_el else ""
 
-        # Easy Apply detection
+        # Easy Apply detection.
+        # On public (unauthenticated) pages LinkedIn sets the tracking control name to
+        # 'public_jobs_apply-link-onsite' for Easy Apply jobs and
+        # 'public_jobs_apply-link-offsite_...' for external-apply jobs.
+        # On authenticated pages a dedicated button class is used instead.
         easy_apply = bool(
             soup.select_one(
-                "button.jobs-apply-button, "
-                "[data-control-name='jobdetails_topcard_inapply'], "
-                ".jobs-apply-button--top-card"
+                "[data-tracking-control-name*='apply-link-onsite'], "
+                "button.apply-button, "
+                "button.jobs-apply-button--top-card"
             )
         )
 
