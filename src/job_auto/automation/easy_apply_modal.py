@@ -547,6 +547,16 @@ async def _fill_page(
 # ---------------------------------------------------------------------------
 
 
+def _is_unfilled(field: dict) -> bool:
+    """Return True if a field has no meaningful value selected/entered."""
+    current = str(field.get("current_value", "")).strip()
+    if not current:
+        return True
+    if field["type"] == "select" and current.lower() == "select an option":
+        return True
+    return False
+
+
 async def handle_easy_apply_modal(
     page: Page,
     context: dict[str, Any],
@@ -658,6 +668,28 @@ async def handle_easy_apply_modal(
 
         if sig_after == sig_before:
             errors = await modal.locator(".artdeco-inline-feedback--error").all_text_contents()
+            # On a questions page with validation errors, re-evaluate the current field
+            # states to find which selects/inputs are still empty. Raise
+            # UnansweredQuestionsError so the application is parked as NEEDS_ANSWERS
+            # rather than burned through retries as FAILED.
+            if errors and page_type in (PageType.QUESTIONS, PageType.UNKNOWN):
+                fresh_data = await modal.evaluate(_EXTRACT_FIELDS_JS)
+                unfilled = [
+                    {"label": f["label"], "type": f["type"], "options": f.get("options", [])}
+                    for f in fresh_data.get("fields", [])
+                    if _is_unfilled(f)
+                ]
+                if unfilled:
+                    job_url = context.get("job_url", "")
+                    kb_store.record_pending_questions("linkedin", job_url, unfilled)
+                    raise UnansweredQuestionsError(
+                        f"Cannot answer {len(unfilled)} required question(s): "
+                        f"{[f['label'] for f in unfilled]}. "
+                        f"Add answers to data/profile.yaml or the knowledge base Q&A cache "
+                        f"(storage/knowledge_base.json → linkedin.qa_cache), then re-run.",
+                        questions=unfilled,
+                        job_url=job_url,
+                    )
             raise RuntimeError(
                 f"Modal page did not advance after Next click "
                 f"(page {page_num}: {page_data.get('page_title', '')}). "
