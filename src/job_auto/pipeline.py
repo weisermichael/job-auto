@@ -392,7 +392,7 @@ class Pipeline:
                         if result.success:
                             app.status = ApplicationStatus.SUBMITTED
                         else:
-                            app.status = ApplicationStatus.FAILED
+                            app.status = result.intended_status or ApplicationStatus.FAILED
                             app.last_failure_reason = result.message
         except Exception:
             # Ensure status never stays stuck at SUBMITTING if something crashes

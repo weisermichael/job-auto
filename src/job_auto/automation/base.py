@@ -25,9 +25,15 @@ logger = get_logger(__name__)
 
 
 class ApplicationResult:
-    def __init__(self, success: bool, message: str = "") -> None:
+    def __init__(
+        self,
+        success: bool,
+        message: str = "",
+        intended_status: ApplicationStatus | None = None,
+    ) -> None:
         self.success = success
         self.message = message
+        self.intended_status = intended_status
 
 
 class AbstractApplicator(ABC):
@@ -107,6 +113,25 @@ class AbstractApplicator(ABC):
                         await asyncio.sleep(step.wait_after_ms / 1000)
                     return ApplicationResult(success=True)
             except (PlaywrightTimeout, Exception) as e:
+                # Unanswered required questions — no point retrying; park for human review
+                try:
+                    from job_auto.automation.easy_apply_modal import UnansweredQuestionsError
+                    if isinstance(e, UnansweredQuestionsError):
+                        logger.warning(
+                            "application_needs_answers",
+                            app_id=application.id,
+                            questions=[q["label"] for q in e.questions],
+                        )
+                        with get_session() as session:
+                            repo.mark_needs_answers(session, application.id, str(e))
+                        return ApplicationResult(
+                            success=False,
+                            message=str(e),
+                            intended_status=ApplicationStatus.NEEDS_ANSWERS,
+                        )
+                except ImportError:
+                    pass
+
                 error_msg = str(e)
                 logger.warning(
                     "step_failed",

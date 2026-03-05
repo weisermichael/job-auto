@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import random
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 from playwright.async_api import Page
@@ -42,49 +41,25 @@ _DEFAULT_PROCEDURE = ApplicationProcedure(
         ),
         ProcedureStep(
             order=3,
-            description="Upload resume",
-            action="upload",
-            selector="input[type='file']",
-            value="{{resume_path}}",
-            wait_after_ms=2000,
-            optional=True,
-        ),
-        ProcedureStep(
-            order=4,
-            description="Fill contact phone (if required)",
-            action="fill",
-            selector="input[name='phoneNumber'], input[id*='phone']",
-            value="{{phone}}",
-            wait_after_ms=500,
-            optional=True,
-        ),
-        ProcedureStep(
-            order=5,
-            description="Click Next / Continue through multi-page form",
-            action="click",
-            selector="button[aria-label='Continue to next step'], footer button.artdeco-button--primary",
-            wait_after_ms=1500,
-        ),
-        ProcedureStep(
-            order=6,
-            description="Submit application",
+            description="Fill and submit Easy Apply modal",
             action="submit",
-            selector="button[aria-label='Submit application']",
             wait_after_ms=3000,
         ),
     ],
     selectors={
         "easy_apply_btn": FormSelector(css="a[aria-label*='Easy Apply'], .jobs-apply-button--top-card, button[aria-label*='Easy Apply']"),
-        "file_upload": FormSelector(css="input[type='file']"),
         "submit_btn": FormSelector(css="button[aria-label='Submit application']"),
-        "next_btn": FormSelector(css="footer button.artdeco-button--primary"),
-        "phone_field": FormSelector(css="input[name='phoneNumber']"),
     },
 )
 
 
 class LinkedInApplicator(AbstractApplicator):
     board_name = "linkedin"
+
+    def __init__(self, page):
+        super().__init__(page)
+        from job_auto.automation.easy_apply_modal import load_profile
+        self._profile = load_profile()
 
     def load_procedure(self) -> ApplicationProcedure:
         stored = kb_store.get_procedure("linkedin")
@@ -124,40 +99,9 @@ class LinkedInApplicator(AbstractApplicator):
                 raise ValueError(f"No value for fill step {step.order}")
             await self._smart_fill(selector or "", value)
 
-        elif action == "upload":
-            if not value or not Path(value).exists():
-                if step.optional:
-                    return True
-                raise FileNotFoundError(f"Resume file not found: {value}")
-            upload_sel = selector or "input[type='file']"
-            next_sel = (
-                "button[aria-label='Continue to next step'], "
-                "button[aria-label='Review your application'], "
-                "footer button.artdeco-button--primary"
-            )
-            # LinkedIn's Easy Apply modal shows Contact Info first; navigate pages
-            # until a file upload input appears, then upload.
-            uploaded = False
-            for _ in range(5):
-                try:
-                    await page.wait_for_selector(upload_sel, timeout=3000)
-                    await page.set_input_files(upload_sel, value)
-                    uploaded = True
-                    break
-                except Exception:
-                    try:
-                        await page.wait_for_selector(next_sel, timeout=2000)
-                        await human_move_and_click(page, next_sel)
-                        await asyncio.sleep(random.uniform(1.0, 2.0))
-                    except Exception:
-                        break
-            if not uploaded and not step.optional:
-                raise FileNotFoundError(f"Resume upload field not found: {upload_sel}")
-
         elif action == "submit":
-            # Handle multi-page LinkedIn Easy Apply forms
-            await self._handle_multipage_form(context)
-            await self._smart_click(selector or "button[aria-label='Submit application']")
+            from job_auto.automation.easy_apply_modal import handle_easy_apply_modal
+            await handle_easy_apply_modal(self.page, context, self._profile)
 
         elif action == "wait":
             ms = step.wait_after_ms or 1000
@@ -167,30 +111,6 @@ class LinkedInApplicator(AbstractApplicator):
             await self._take_screenshot(context.get("app_id", "unknown"), step.order)
 
         return True
-
-    async def _handle_multipage_form(self, context: dict[str, str]) -> None:
-        """Click through multi-step LinkedIn Easy Apply form pages."""
-        max_pages = 10
-        for _ in range(max_pages):
-            # Check if submit button is present
-            submit_visible = await self.page.is_visible(
-                "button[aria-label='Submit application']", timeout=1000
-            )
-            if submit_visible:
-                break
-
-            # Look for Next / Continue button
-            next_sel = (
-                "button[aria-label='Continue to next step'], "
-                "button[aria-label='Review your application'], "
-                "footer button.artdeco-button--primary"
-            )
-            next_visible = await self.page.is_visible(next_sel, timeout=1000)
-            if next_visible:
-                await human_move_and_click(self.page, next_sel)
-                await asyncio.sleep(random.uniform(1.0, 2.0))
-            else:
-                break
 
     async def _smart_click(self, selector: str) -> None:
         """Click with retry across comma-separated selector fallbacks."""

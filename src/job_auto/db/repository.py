@@ -204,6 +204,14 @@ def mark_submitted(session: Session, app_id: str) -> None:
         orm.submitted_at = datetime.utcnow()
 
 
+def mark_needs_answers(session: Session, app_id: str, reason: str) -> None:
+    """Mark application as needing human-supplied answers (not a hard failure)."""
+    orm = session.get(ApplicationRecordORM, app_id)
+    if orm:
+        orm.status = ApplicationStatus.NEEDS_ANSWERS.value
+        orm.last_failure_reason = reason
+
+
 def list_unapplied_jobs(session: Session, limit: int = 50) -> list[JobPosting]:
     """Return jobs that have no application record yet (never been processed)."""
     from sqlalchemy import select

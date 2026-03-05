@@ -57,6 +57,16 @@ def apply(url: str, auto: bool, dry_run: bool, tailor: bool) -> None:
         try:
             app = await pipeline.apply(url, dry_run=dry_run)
             console.print(f"\n[bold green]✓ Done[/bold green]  status=[cyan]{app.status}[/cyan]  id={app.id}")
+            from job_auto.models.application import ApplicationStatus
+            if app.status == ApplicationStatus.NEEDS_ANSWERS:
+                console.print(
+                    "\n[yellow]Some required questions could not be answered automatically.[/yellow]\n"
+                    "  1. Find the question labels in [bold]storage/knowledge_base.json[/bold] "
+                    "under [bold]linkedin → pending_questions[/bold].\n"
+                    "  2. Add answers under [bold]linkedin → qa_cache[/bold] "
+                    "(key = exact question text, value = your answer).\n"
+                    f"  3. Re-run: [bold]job-auto apply {url}[/bold]"
+                )
         except PipelineError as e:
             console.print(f"[bold red]Pipeline error:[/bold red] {e}")
             raise SystemExit(1)
