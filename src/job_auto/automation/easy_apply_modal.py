@@ -39,10 +39,10 @@ _EXTRACT_FIELDS_JS = """(modal) => {
     function findLabel(el) {
         if (el.id) {
             const lbl = modal.querySelector('label[for="' + el.id + '"]');
-            if (lbl) return lbl.textContent.trim();
+            if (lbl) return getLabelText(lbl);
         }
         const parentLbl = el.closest('label');
-        if (parentLbl) return parentLbl.textContent.trim();
+        if (parentLbl) return getLabelText(parentLbl);
         const ariaLabel = el.getAttribute('aria-label');
         if (ariaLabel) return ariaLabel;
         const placeholder = el.getAttribute('placeholder');
@@ -53,9 +53,17 @@ _EXTRACT_FIELDS_JS = """(modal) => {
         );
         if (container) {
             const lbl = container.querySelector('label, legend');
-            if (lbl) return lbl.textContent.trim();
+            if (lbl) return getLabelText(lbl);
         }
         return '';
+    }
+
+    function getLabelText(el) {
+        // LinkedIn labels contain aria-hidden duplicate spans for screen readers.
+        // Clone the element, strip those spans, then read textContent to get clean text.
+        const clone = el.cloneNode(true);
+        clone.querySelectorAll('[aria-hidden="true"]').forEach(n => n.remove());
+        return clone.textContent.trim().replace(/\s+/g, ' ');
     }
 
     const fields = [];
@@ -114,7 +122,7 @@ _EXTRACT_FIELDS_JS = """(modal) => {
         const firstEl = modal.querySelector('input[name="' + key + '"]');
         const fieldset = firstEl && firstEl.closest('fieldset');
         const groupLabel = (fieldset && fieldset.querySelector('legend'))
-            ? fieldset.querySelector('legend').textContent.trim()
+            ? getLabelText(fieldset.querySelector('legend'))
             : key;
         fields.push({
             type: 'radio',
