@@ -169,7 +169,11 @@ def get_application(session: Session, app_id: str) -> Optional[ApplicationRecord
 
 def get_application_by_job(session: Session, job_id: str) -> Optional[ApplicationRecord]:
     from sqlalchemy import select
-    stmt = select(ApplicationRecordORM).where(ApplicationRecordORM.job_id == job_id)
+    stmt = (
+        select(ApplicationRecordORM)
+        .where(ApplicationRecordORM.job_id == job_id)
+        .order_by(ApplicationRecordORM.created_at.desc())
+    )
     orm = session.scalars(stmt).first()
     return _orm_to_app(orm) if orm else None
 

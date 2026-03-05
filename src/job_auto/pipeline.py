@@ -57,6 +57,7 @@ class Pipeline:
         # 2. DEDUPE / UPSERT
         # Always look up by URL — the freshly-scraped job has a new UUID that won't
         # match any existing DB record, so we must use the existing row's ID.
+        existing_app: Optional[ApplicationRecord] = None
         with get_session() as session:
             existing_job = repo.get_job_by_url(session, str(job.url))
             if existing_job is not None:
@@ -66,19 +67,23 @@ class Pipeline:
                     ApplicationStatus.FAILED,
                     ApplicationStatus.REVIEW_REJECTED,
                     ApplicationStatus.SUBMITTING,  # stuck due to crash — allow retry
+                    ApplicationStatus.NEEDS_ANSWERS,  # user added QA answers, allow retry
                 }:
                     logger.info("duplicate_skip", url=url)
                     return existing_app
-                logger.info("job_exists_no_application", job_id=job.id)
+                if existing_app:
+                    logger.info("retry_existing_application", job_id=job.id, app_id=existing_app.id)
+                else:
+                    logger.info("job_exists_no_application", job_id=job.id)
             else:
                 repo.upsert_job(session, job)
 
         # 3. TAILOR or prepare base documents
         if self.tailor:
-            application = await self._tailor(job)
+            application = await self._tailor(job, existing_app=existing_app)
             application = self._render_pdfs(job, application)
         else:
-            application = await self._prepare_default_documents(job)
+            application = await self._prepare_default_documents(job, existing_app=existing_app)
 
         # 5. REVIEW (if not autonomous)
         if not self.autonomous:
@@ -123,6 +128,7 @@ class Pipeline:
             ApplicationStatus.FAILED,
             ApplicationStatus.REVIEW_REJECTED,
             ApplicationStatus.SUBMITTING,  # stuck due to crash — allow retry
+            ApplicationStatus.NEEDS_ANSWERS,  # user added QA answers, allow retry
         }:
             logger.info("already_applied_skip", job_id=job.id, status=existing.status)
             return existing
@@ -137,10 +143,10 @@ class Pipeline:
             )
 
         if self.tailor:
-            application = await self._tailor(job)
+            application = await self._tailor(job, existing_app=existing)
             application = self._render_pdfs(job, application)
         else:
-            application = await self._prepare_default_documents(job)
+            application = await self._prepare_default_documents(job, existing_app=existing)
 
         if not self.autonomous:
             application = self._review(job, application)
@@ -266,15 +272,24 @@ class Pipeline:
         async with scraper:
             return await scraper.parse(url)
 
-    async def _prepare_default_documents(self, job: JobPosting) -> ApplicationRecord:
+    async def _prepare_default_documents(
+        self, job: JobPosting, existing_app: Optional[ApplicationRecord] = None
+    ) -> ApplicationRecord:
         """Create an ApplicationRecord using the cached base-resume PDF (no AI calls)."""
-        app = ApplicationRecord(
-            id=uuid.uuid4().hex[:12],
-            job_id=job.id,
-            status=ApplicationStatus.REVIEW_PENDING if not self.autonomous else ApplicationStatus.QUEUED,
-            autonomous_mode=self.autonomous,
-            created_at=datetime.utcnow(),
-        )
+        if existing_app is not None:
+            app = existing_app
+            app.last_failure_reason = None
+            app.last_failure_screenshot = None
+            app.last_correction = None
+            app.status = ApplicationStatus.REVIEW_PENDING if not self.autonomous else ApplicationStatus.QUEUED
+        else:
+            app = ApplicationRecord(
+                id=uuid.uuid4().hex[:12],
+                job_id=job.id,
+                status=ApplicationStatus.REVIEW_PENDING if not self.autonomous else ApplicationStatus.QUEUED,
+                autonomous_mode=self.autonomous,
+                created_at=datetime.utcnow(),
+            )
 
         # Cached base PDF — regenerate only when resume.yaml is newer
         cached_pdf = config.resumes_dir / "base_resume.pdf"
@@ -291,23 +306,36 @@ class Pipeline:
         app.resume_path = str(cached_pdf)
 
         with get_session() as session:
-            repo.create_application(session, app)
+            if existing_app is not None:
+                repo.update_application(session, app)
+            else:
+                repo.create_application(session, app)
 
         logger.info("default_documents_ready", app_id=app.id, resume=str(cached_pdf))
         return app
 
-    async def _tailor(self, job: JobPosting) -> ApplicationRecord:
+    async def _tailor(
+        self, job: JobPosting, existing_app: Optional[ApplicationRecord] = None
+    ) -> ApplicationRecord:
         """Run AI tailoring and create the ApplicationRecord."""
-        app = ApplicationRecord(
-            id=uuid.uuid4().hex[:12],
-            job_id=job.id,
-            status=ApplicationStatus.TAILORING,
-            autonomous_mode=self.autonomous,
-            created_at=datetime.utcnow(),
-        )
-
-        with get_session() as session:
-            repo.create_application(session, app)
+        if existing_app is not None:
+            app = existing_app
+            app.last_failure_reason = None
+            app.last_failure_screenshot = None
+            app.last_correction = None
+            app.status = ApplicationStatus.TAILORING
+            with get_session() as session:
+                repo.update_application(session, app)
+        else:
+            app = ApplicationRecord(
+                id=uuid.uuid4().hex[:12],
+                job_id=job.id,
+                status=ApplicationStatus.TAILORING,
+                autonomous_mode=self.autonomous,
+                created_at=datetime.utcnow(),
+            )
+            with get_session() as session:
+                repo.create_application(session, app)
 
         base_yaml = load_base_resume()
 
