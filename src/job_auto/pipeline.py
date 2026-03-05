@@ -236,9 +236,14 @@ class Pipeline:
         query: str = "",
         limit: int = 20,
         remote: bool = True,
+        easy_apply_only: bool = False,
         **kwargs,
-    ) -> list[JobPosting]:
-        """Scan a job board for new listings and store them."""
+    ) -> tuple[list[JobPosting], int]:
+        """Scan a job board for new listings and store them.
+
+        Returns (new_jobs, skipped_count) where skipped_count is the number of
+        jobs dropped because easy_apply_only=True and they were not Easy Apply.
+        """
         config.ensure_dirs()
 
         scraper_map: dict[str, str] = {
@@ -249,9 +254,15 @@ class Pipeline:
         url = scraper_map.get(board.lower(), f"https://{board}")
         scraper = get_scraper(url)
 
-        logger.info("scan_start", board=board, query=query, limit=limit)
+        logger.info("scan_start", board=board, query=query, limit=limit, easy_apply_only=easy_apply_only)
         async with scraper:
             jobs = await scraper.search(query=query, remote=remote, limit=limit, **kwargs)
+
+        skipped = 0
+        if easy_apply_only:
+            filtered = [j for j in jobs if j.easy_apply_available]
+            skipped = len(jobs) - len(filtered)
+            jobs = filtered
 
         new_jobs = []
         with get_session() as session:
@@ -260,8 +271,8 @@ class Pipeline:
                     repo.upsert_job(session, job)
                     new_jobs.append(job)
 
-        logger.info("scan_complete", board=board, found=len(jobs), new=len(new_jobs))
-        return new_jobs
+        logger.info("scan_complete", board=board, found=len(jobs), new=len(new_jobs), skipped=skipped)
+        return new_jobs, skipped
 
     # ──────────────────────────────────────────────────────────
     # Pipeline steps

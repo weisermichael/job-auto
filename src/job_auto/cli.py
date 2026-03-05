@@ -266,14 +266,22 @@ def browse(unapplied: bool, board: str) -> None:
 @click.option("--query", "-q", default="", help="Search query (title / keywords)")
 @click.option("--limit", "-n", default=20, show_default=True, help="Max listings to fetch")
 @click.option("--remote/--no-remote", default=True, show_default=True, help="Remote jobs only")
-def scan(board: str, query: str, limit: int, remote: bool) -> None:
+@click.option("--easy-apply", "easy_apply_only", is_flag=True, default=False,
+              help="Only save Easy Apply jobs; silently drop the rest")
+def scan(board: str, query: str, limit: int, remote: bool, easy_apply_only: bool) -> None:
     """Scan a job board for new listings matching criteria."""
     from job_auto.pipeline import Pipeline
 
     pipeline = Pipeline()
+    effective_easy_apply = easy_apply_only or config.scan_easy_apply_only
 
     async def _run():
-        jobs = await pipeline.scan(board=board, query=query, limit=limit, remote=remote)
+        jobs, skipped = await pipeline.scan(
+            board=board, query=query, limit=limit, remote=remote,
+            easy_apply_only=effective_easy_apply,
+        )
+        if skipped:
+            console.print(f"[dim]{skipped} non-Easy-Apply listing(s) skipped.[/dim]")
         if not jobs:
             console.print("[yellow]No new listings found.[/yellow]")
             return
