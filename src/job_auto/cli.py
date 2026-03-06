@@ -266,14 +266,44 @@ def browse(unapplied: bool, board: str) -> None:
 @click.option("--query", "-q", default="", help="Search query (title / keywords)")
 @click.option("--limit", "-n", default=20, show_default=True, help="Max listings to fetch")
 @click.option("--remote/--no-remote", default=True, show_default=True, help="Remote jobs only")
-def scan(board: str, query: str, limit: int, remote: bool) -> None:
-    """Scan a job board for new listings matching criteria."""
+@click.option("--easy-apply", "easy_apply_only", is_flag=True, default=False,
+              help="Only save Easy Apply jobs; silently drop the rest")
+@click.option("--auth-flow", is_flag=True, default=False,
+              help="Use authenticated Playwright browser (LinkedIn only). "
+                   "Required for reliable Easy Apply server-side filtering.")
+def scan(board: str, query: str, limit: int, remote: bool, easy_apply_only: bool, auth_flow: bool) -> None:
+    """Scan a job board for new listings matching criteria.
+
+    \b
+    Examples:
+      job-auto scan linkedin -q "senior python engineer"
+      job-auto scan linkedin -q "backend engineer" --easy-apply
+      job-auto scan linkedin -q "backend engineer" --auth-flow --easy-apply
+    """
+    from job_auto.ingestion.linkedin_playwright import LinkedInAuthError
     from job_auto.pipeline import Pipeline
 
     pipeline = Pipeline()
+    effective_easy_apply = easy_apply_only or config.scan_easy_apply_only
 
     async def _run():
-        jobs = await pipeline.scan(board=board, query=query, limit=limit, remote=remote)
+        try:
+            jobs, skipped = await pipeline.scan(
+                board=board, query=query, limit=limit, remote=remote,
+                easy_apply_only=effective_easy_apply,
+                auth_flow=auth_flow,
+            )
+        except LinkedInAuthError as exc:
+            console.print(f"[bold red]LinkedIn auth error:[/bold red] {exc}")
+            console.print(
+                "Run [bold]job-auto apply <linkedin-url>[/bold] first to create a session, "
+                "or check that [bold]LINKEDIN_EMAIL[/bold] and [bold]LINKEDIN_PASSWORD[/bold] "
+                "are set in [bold].env[/bold]."
+            )
+            raise SystemExit(1)
+
+        if skipped:
+            console.print(f"[dim]{skipped} non-Easy-Apply listing(s) skipped.[/dim]")
         if not jobs:
             console.print("[yellow]No new listings found.[/yellow]")
             return

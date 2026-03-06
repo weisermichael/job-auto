@@ -236,9 +236,20 @@ class Pipeline:
         query: str = "",
         limit: int = 20,
         remote: bool = True,
+        easy_apply_only: bool = False,
+        auth_flow: bool = False,
         **kwargs,
-    ) -> list[JobPosting]:
-        """Scan a job board for new listings and store them."""
+    ) -> tuple[list[JobPosting], int]:
+        """Scan a job board for new listings and store them.
+
+        auth_flow=True uses the authenticated Playwright scraper (LinkedIn only),
+        which enables the server-side Easy Apply filter when combined with
+        easy_apply_only=True.
+
+        Returns (new_jobs, skipped_count) where skipped_count is the number of
+        jobs dropped by the post-scrape Easy Apply filter (only applies when
+        auth_flow=False and easy_apply_only=True).
+        """
         config.ensure_dirs()
 
         scraper_map: dict[str, str] = {
@@ -247,11 +258,33 @@ class Pipeline:
             "nodesk": "https://nodesk.co",
         }
         url = scraper_map.get(board.lower(), f"https://{board}")
-        scraper = get_scraper(url)
+        use_playwright = auth_flow and board.lower() == "linkedin"
+        scraper = get_scraper(url, use_playwright=use_playwright)
 
-        logger.info("scan_start", board=board, query=query, limit=limit)
+        logger.info(
+            "scan_start",
+            board=board,
+            query=query,
+            limit=limit,
+            easy_apply_only=easy_apply_only,
+            auth_flow=auth_flow,
+        )
         async with scraper:
-            jobs = await scraper.search(query=query, remote=remote, limit=limit, **kwargs)
+            if use_playwright:
+                # Pass easy_apply_only to the Playwright scraper so it applies
+                # the server-side filter; skipped count is always 0 here.
+                jobs = await scraper.search(
+                    query=query, remote=remote, limit=limit,
+                    easy_apply_only=easy_apply_only, **kwargs
+                )
+                skipped = 0
+            else:
+                jobs = await scraper.search(query=query, remote=remote, limit=limit, **kwargs)
+                skipped = 0
+                if easy_apply_only:
+                    filtered = [j for j in jobs if j.easy_apply_available]
+                    skipped = len(jobs) - len(filtered)
+                    jobs = filtered
 
         new_jobs = []
         with get_session() as session:
@@ -260,8 +293,8 @@ class Pipeline:
                     repo.upsert_job(session, job)
                     new_jobs.append(job)
 
-        logger.info("scan_complete", board=board, found=len(jobs), new=len(new_jobs))
-        return new_jobs
+        logger.info("scan_complete", board=board, found=len(jobs), new=len(new_jobs), skipped=skipped)
+        return new_jobs, skipped
 
     # ──────────────────────────────────────────────────────────
     # Pipeline steps

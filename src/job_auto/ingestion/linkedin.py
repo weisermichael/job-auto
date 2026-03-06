@@ -28,6 +28,107 @@ _LEVEL_MAP: dict[str, ExperienceLevel] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Module-level helpers — used by both LinkedInScraper and LinkedInPlaywrightScraper
+# ---------------------------------------------------------------------------
+
+def _text(el) -> str:
+    if el is None:
+        return ""
+    return el.get_text(" ", strip=True)
+
+
+def _parse_salary(text: str) -> tuple[Optional[int], Optional[int]]:
+    patterns = [
+        r"\$(\d{1,3}(?:,\d{3})*(?:\.\d+)?)[Kk]?\s*[-–—to]+\s*\$(\d{1,3}(?:,\d{3})*(?:\.\d+)?)[Kk]?",
+        r"\$(\d{1,3}(?:,\d{3})*)[Kk]?\s*[-–—/]",
+    ]
+    for pat in patterns:
+        m = re.search(pat, text)
+        if m:
+            def parse_num(s: str) -> int:
+                n = float(s.replace(",", ""))
+                if n < 1000:
+                    n *= 1000
+                return int(n)
+            try:
+                lo = parse_num(m.group(1))
+                hi = parse_num(m.group(2)) if m.lastindex and m.lastindex >= 2 else lo
+                return lo, hi
+            except (ValueError, IndexError):
+                pass
+    return None, None
+
+
+def extract_job(soup: BeautifulSoup, url: str) -> JobPosting:
+    """Parse a LinkedIn job page (BeautifulSoup) into a JobPosting.
+
+    Works for both public (unauthenticated) and authenticated page HTML.
+    Shared between LinkedInScraper and LinkedInPlaywrightScraper.
+    """
+    title = _text(soup.select_one("h1.top-card-layout__title, h1.jobs-unified-top-card__job-title"))
+    company = _text(soup.select_one(
+        "a.topcard__org-name-link, span.jobs-unified-top-card__company-name a, "
+        ".jobs-unified-top-card__company-name"
+    ))
+    location_el = soup.select_one(
+        "span.topcard__flavor--bullet, span.jobs-unified-top-card__bullet, "
+        ".jobs-unified-top-card__workplace-type"
+    )
+    location = _text(location_el)
+
+    description_el = soup.select_one(
+        "div.show-more-less-html__markup, div.jobs-description-content__text"
+    )
+    description = description_el.get_text(" ", strip=True) if description_el else ""
+
+    # Easy Apply detection.
+    # Public pages: tracking control name contains 'apply-link-onsite' for Easy Apply
+    #               and 'apply-link-offsite' for external apply.
+    # Authenticated pages: button carries aria-label "Easy Apply" or the dedicated
+    #                      top-card class.
+    easy_apply = bool(
+        soup.select_one(
+            "[data-tracking-control-name*='apply-link-onsite'], "
+            "button.apply-button, "
+            "button[aria-label*='Easy Apply'], "
+            "button.jobs-apply-button--top-card"
+        )
+    )
+
+    # Experience level
+    level_el = soup.select_one(".jobs-unified-top-card__job-insight span, .description__job-criteria-text")
+    level_text = _text(level_el).lower()
+    level = ExperienceLevel.UNKNOWN
+    for key, val in _LEVEL_MAP.items():
+        if key in level_text:
+            level = val
+            break
+
+    remote = any(
+        word in (location or "").lower()
+        for word in ("remote", "anywhere", "distributed")
+    )
+
+    salary_min, salary_max = _parse_salary(description)
+
+    return JobPosting(
+        id=uuid.uuid4().hex[:12],
+        title=title or "Unknown Title",
+        company=company or "Unknown Company",
+        board=JobBoard.LINKEDIN,
+        url=url,  # type: ignore[arg-type]
+        description=description,
+        location=location,
+        remote=remote,
+        experience_level=level,
+        easy_apply_available=easy_apply,
+        salary_min=salary_min,
+        salary_max=salary_max,
+        date_found=datetime.utcnow(),
+    )
+
+
 class LinkedInScraper(AbstractScraper):
     BASE_SEARCH = "https://www.linkedin.com/jobs/search/"
     BASE_JOB = "https://www.linkedin.com/jobs/view/"
@@ -40,7 +141,7 @@ class LinkedInScraper(AbstractScraper):
         """Parse a LinkedIn job posting page."""
         response = await self._get(url)
         soup = BeautifulSoup(response.text, "lxml")
-        return self._extract_job(soup, url)
+        return extract_job(soup, url)
 
     async def search(
         self,
@@ -90,94 +191,8 @@ class LinkedInScraper(AbstractScraper):
 
         return results
 
-    def _extract_job(self, soup: BeautifulSoup, url: str) -> JobPosting:
-        title = self._text(soup.select_one("h1.top-card-layout__title, h1.jobs-unified-top-card__job-title"))
-        company = self._text(soup.select_one(
-            "a.topcard__org-name-link, span.jobs-unified-top-card__company-name a, "
-            ".jobs-unified-top-card__company-name"
-        ))
-        location_el = soup.select_one(
-            "span.topcard__flavor--bullet, span.jobs-unified-top-card__bullet, "
-            ".jobs-unified-top-card__workplace-type"
-        )
-        location = self._text(location_el)
-
-        description_el = soup.select_one(
-            "div.show-more-less-html__markup, div.jobs-description-content__text"
-        )
-        description = description_el.get_text(" ", strip=True) if description_el else ""
-
-        # Easy Apply detection
-        easy_apply = bool(
-            soup.select_one(
-                "button.jobs-apply-button, "
-                "[data-control-name='jobdetails_topcard_inapply'], "
-                ".jobs-apply-button--top-card"
-            )
-        )
-
-        # Experience level
-        level_el = soup.select_one(".jobs-unified-top-card__job-insight span, .description__job-criteria-text")
-        level_text = self._text(level_el).lower()
-        level = ExperienceLevel.UNKNOWN
-        for key, val in _LEVEL_MAP.items():
-            if key in level_text:
-                level = val
-                break
-
-        remote = any(
-            word in (location or "").lower()
-            for word in ("remote", "anywhere", "distributed")
-        )
-
-        salary_min, salary_max = self._parse_salary(description)
-
-        return JobPosting(
-            id=uuid.uuid4().hex[:12],
-            title=title or "Unknown Title",
-            company=company or "Unknown Company",
-            board=JobBoard.LINKEDIN,
-            url=url,  # type: ignore[arg-type]
-            description=description,
-            location=location,
-            remote=remote,
-            experience_level=level,
-            easy_apply_available=easy_apply,
-            salary_min=salary_min,
-            salary_max=salary_max,
-            date_found=datetime.utcnow(),
-        )
-
     def _extract_card_url(self, card) -> Optional[str]:
         link = card.select_one("a.base-card__full-link, a[data-tracking-control-name='public_jobs_jserp-card_search-card']")
         if link and link.get("href"):
             return link["href"].split("?")[0]
         return None
-
-    @staticmethod
-    def _text(el) -> str:
-        if el is None:
-            return ""
-        return el.get_text(" ", strip=True)
-
-    @staticmethod
-    def _parse_salary(text: str) -> tuple[Optional[int], Optional[int]]:
-        patterns = [
-            r"\$(\d{1,3}(?:,\d{3})*(?:\.\d+)?)[Kk]?\s*[-–—to]+\s*\$(\d{1,3}(?:,\d{3})*(?:\.\d+)?)[Kk]?",
-            r"\$(\d{1,3}(?:,\d{3})*)[Kk]?\s*[-–—/]",
-        ]
-        for pat in patterns:
-            m = re.search(pat, text)
-            if m:
-                def parse_num(s: str) -> int:
-                    n = float(s.replace(",", ""))
-                    if n < 1000:
-                        n *= 1000
-                    return int(n)
-                try:
-                    lo = parse_num(m.group(1))
-                    hi = parse_num(m.group(2)) if m.lastindex and m.lastindex >= 2 else lo
-                    return lo, hi
-                except (ValueError, IndexError):
-                    pass
-        return None, None

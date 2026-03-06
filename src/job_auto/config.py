@@ -29,6 +29,7 @@ class Config(BaseSettings):
     max_retries: int = 3
     daily_apply_limit: int = 10
     headless_browser: bool = True
+    scan_easy_apply_only: bool = False
 
     # Paths
     storage_dir: Path = Path("storage")
