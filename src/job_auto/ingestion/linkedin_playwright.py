@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 from bs4 import BeautifulSoup
 
 from job_auto.config import config
-from job_auto.ingestion.linkedin import extract_job
+from job_auto.ingestion.linkedin import LinkedInScraper
 from job_auto.models.job_posting import JobPosting
 from job_auto.utils.logging import get_logger
 
@@ -43,6 +43,7 @@ class LinkedInPlaywrightScraper:
     def __init__(self) -> None:
         self._stack = contextlib.AsyncExitStack()
         self._page = None
+        self._httpx_scraper: Optional[LinkedInScraper] = None
 
     async def __aenter__(self) -> "LinkedInPlaywrightScraper":
         from playwright.async_api import async_playwright
@@ -64,18 +65,17 @@ class LinkedInPlaywrightScraper:
         except RuntimeError as exc:
             raise LinkedInAuthError(str(exc)) from exc
 
+        self._httpx_scraper = await self._stack.enter_async_context(LinkedInScraper())
+
         return self
 
     async def __aexit__(self, *args) -> None:
         await self._stack.aclose()
 
     async def parse(self, url: str) -> JobPosting:
-        """Navigate to a LinkedIn job URL and return a JobPosting."""
-        assert self._page is not None, "Use as async context manager"
-        await self._page.goto(url, wait_until="load")
-        html = await self._page.content()
-        soup = BeautifulSoup(html, "lxml")
-        return extract_job(soup, url)
+        """Fetch a LinkedIn job URL and return a JobPosting via httpx."""
+        assert self._httpx_scraper is not None, "Use as async context manager"
+        return await self._httpx_scraper.parse(url)
 
     async def search(
         self,
@@ -105,10 +105,14 @@ class LinkedInPlaywrightScraper:
         if easy_apply_only:
             params["f_LF"] = "f_AL"
 
-        results: list[JobPosting] = []
+        # Phase 1: collect all job URLs via Playwright (authenticated search pages only).
+        # All Playwright navigation completes before any httpx requests are made,
+        # avoiding fingerprint-mismatch detection that occurs when the two clients
+        # interleave requests to LinkedIn from the same IP.
+        job_urls: list[str] = []
         start = 0
 
-        while len(results) < limit:
+        while len(job_urls) < limit:
             params["start"] = start
             search_url = f"{self.BASE_SEARCH}?{urlencode(params)}"
 
@@ -128,27 +132,31 @@ class LinkedInPlaywrightScraper:
             html = await self._page.content()
             soup = BeautifulSoup(html, "lxml")
 
-            job_urls = self._extract_card_urls(soup)
-            if not job_urls:
+            page_urls = self._extract_card_urls(soup)
+            if not page_urls:
                 logger.warning("linkedin_playwright_no_cards", url=search_url)
                 break
 
-            for job_url in job_urls:
-                if len(results) >= limit:
+            for url in page_urls:
+                if len(job_urls) >= limit:
                     break
-                try:
-                    await asyncio.sleep(1.0)
-                    job = await self.parse(job_url)
-                    if easy_apply_only:
-                        # Trust the server-side filter: all returned jobs are Easy Apply.
-                        job = job.model_copy(update={"easy_apply_available": True})
-                    results.append(job)
-                except Exception as exc:
-                    logger.warning(
-                        "linkedin_playwright_parse_error", url=job_url, error=str(exc)
-                    )
+                job_urls.append(url)
 
             start += 25
+
+        # Phase 2: fetch job detail pages via httpx (rate-limited, no Playwright overhead).
+        results: list[JobPosting] = []
+        for job_url in job_urls:
+            try:
+                job = await self.parse(job_url)
+                if easy_apply_only:
+                    # Trust the server-side filter: all returned jobs are Easy Apply.
+                    job = job.model_copy(update={"easy_apply_available": True})
+                results.append(job)
+            except Exception as exc:
+                logger.warning(
+                    "linkedin_playwright_parse_error", url=job_url, error=str(exc)
+                )
 
         return results
 
