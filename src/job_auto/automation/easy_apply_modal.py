@@ -641,8 +641,18 @@ async def handle_easy_apply_modal(
         if await submit.count() > 0 and await submit.is_visible():
             await asyncio.sleep(random.uniform(0.5, 1.0))
             await human_move_and_click(page, submit_sel)
-            await asyncio.sleep(2)
-            continue  # capture confirmation page on next iteration
+            # LinkedIn closes the Easy Apply modal immediately on submission and then
+            # shows a separate "Application sent" confirmation (different shadow-DOM
+            # component). Detachment of .jobs-easy-apply-modal is the success signal.
+            try:
+                await page.wait_for_selector(_MODAL_CSS, state="detached", timeout=10_000)
+            except Exception:
+                # Timed out — if the Submit button is still visible the click may not
+                # have registered; raise so the retry loop can try again.
+                if await submit.count() > 0 and await submit.is_visible():
+                    raise RuntimeError("Submit click did not close the Easy Apply modal")
+            confirmed = True
+            break
 
         # Capture signature before clicking Next to detect stuck pages
         sig_before = await modal.evaluate(_SIGNATURE_JS)
