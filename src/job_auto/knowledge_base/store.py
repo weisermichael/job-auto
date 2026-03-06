@@ -154,6 +154,26 @@ class KnowledgeBaseStore:
         raw = self.get_raw(board)
         return list(raw.get("pending_questions", {}).get(job_url, [])) if raw else []
 
+    def resolve_pending_question(self, board: str, job_url: str, question_label: str) -> None:
+        """Remove one answered question from pending. Removes the job URL entry when the last question is resolved."""
+        with self._lock:
+            self._load()
+            if board not in self._data:
+                return
+            pending = self._data[board].setdefault("pending_questions", {})
+            questions = [q for q in pending.get(job_url, []) if q.get("label") != question_label]
+            if questions:
+                pending[job_url] = questions
+            else:
+                pending.pop(job_url, None)
+            self._data[board]["last_updated"] = datetime.utcnow().isoformat()
+            self._save_unlocked()
+
+    def list_all_pending_questions(self, board: str) -> dict[str, list[dict]]:
+        """Return all {job_url: questions} pending for a board."""
+        raw = self.get_raw(board)
+        return dict(raw.get("pending_questions", {})) if raw else {}
+
     def get_failure_patches(self, board: str) -> dict[str, Any]:
         raw = self.get_raw(board)
         return raw.get("failure_patches", {}) if raw else {}
