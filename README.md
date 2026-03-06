@@ -254,7 +254,7 @@ Application statuses:
 | `submitting` | Playwright is filling the form |
 | `submitted` | Done |
 | `failed` | Playwright failed after all retries |
-| `needs_answers` | Required form questions couldn't be auto-answered; add answers to `storage/knowledge_base.json` under `<board> → qa_cache` then re-run |
+| `needs_answers` | Required form questions couldn't be auto-answered; run `job-auto answer-questions` to provide them interactively, then `job-auto retry-needs-answers` to resubmit |
 | `retry` | Queued for another attempt |
 
 ---
@@ -276,6 +276,39 @@ job-auto retry-failed [--auto]
 ```
 
 Retries all failed applications that are under the max retry limit (default: 3 attempts).
+
+---
+
+### `answer-questions` — answer required form questions interactively
+
+```bash
+job-auto answer-questions [--board linkedin] [--retry]
+```
+
+When a LinkedIn Easy Apply form has required questions the system can't answer automatically (no match in your profile or the Q&A cache), the application is parked at `needs_answers`. This command walks you through each unanswered question one at a time with type-aware prompts:
+
+- **select / radio** — numbered list; pick by index or exact text
+- **checkbox** — yes/no confirm
+- **textarea** — multiline input, blank line to finish
+- **text / number / tel / email** — plain text entry
+
+Each answer is written to the knowledge base immediately after you provide it, so Ctrl-C mid-session leaves already-answered questions saved. After the session, you can retry the application right away or run `retry-needs-answers` later.
+
+```bash
+job-auto answer-questions                # LinkedIn (default)
+job-auto answer-questions --board indeed # filter by board
+job-auto answer-questions --retry        # skip the retry prompt and retry automatically
+```
+
+---
+
+### `retry-needs-answers` — batch retry after answering questions
+
+```bash
+job-auto retry-needs-answers
+```
+
+Retries all `needs_answers` applications whose questions have been fully answered. Skips any application that still has unanswered questions in the knowledge base and prints a clear message for each skipped app so you know what's left to do.
 
 ---
 
@@ -334,6 +367,14 @@ job-auto apply-all --auto --limit 10
 ```bash
 job-auto apply https://www.linkedin.com/jobs/view/1234567890 --dry-run   # preview
 job-auto apply https://www.linkedin.com/jobs/view/1234567890             # for real
+```
+
+**Handle required form questions:**
+```bash
+job-auto status -s needs_answers         # see which apps need answers
+job-auto answer-questions                # answer them interactively, retry when done
+# or, if you answered questions in bulk:
+job-auto retry-needs-answers             # batch retry all ready apps
 ```
 
 **Morning routine (cron-friendly):**
