@@ -129,6 +129,34 @@ class LinkedInPlaywrightScraper:
             # Allow JS rendering to settle after domcontentloaded
             await asyncio.sleep(3)
 
+            # Scroll the job list panel incrementally to trigger lazy-loaded cards.
+            # The 25 <li> placeholders exist immediately but only populate with card
+            # content when scrolled into view via IntersectionObserver. An instant
+            # scrollTo(bottom) skips intermediate observers; step-scrolling fires them all.
+            # We locate the scroll container by walking up from a known stable child
+            # rather than using an obfuscated/hashed class name that changes over time.
+            await self._page.evaluate("""
+                (async () => {
+                    const li = document.querySelector('li.scaffold-layout__list-item');
+                    if (!li) return;
+                    let panel = li.parentElement;
+                    while (panel) {
+                        const overflow = window.getComputedStyle(panel).overflowY;
+                        if ((overflow === 'auto' || overflow === 'scroll')
+                                && panel.scrollHeight > panel.clientHeight) {
+                            break;
+                        }
+                        panel = panel.parentElement;
+                    }
+                    if (!panel) return;
+                    while (panel.scrollTop + panel.clientHeight < panel.scrollHeight) {
+                        panel.scrollBy(0, 300);
+                        await new Promise(r => setTimeout(r, 100));
+                    }
+                })()
+            """)
+            await asyncio.sleep(3)
+
             html = await self._page.content()
             soup = BeautifulSoup(html, "lxml")
 
