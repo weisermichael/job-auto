@@ -425,10 +425,8 @@ async def _fill_questions(
         label = field["label"]
         label_lower = label.lower()
         ftype = field["type"]
-        current = field.get("current_value", "")
-
-        # Skip already-filled fields
-        if current:
+        # Skip already-filled fields (use _is_unfilled to handle "Select an option" placeholder)
+        if not _is_unfilled(field):
             continue
 
         cache_key = re.sub(r"\s+", " ", label_lower).strip()

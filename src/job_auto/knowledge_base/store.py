@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -57,6 +58,10 @@ _INITIAL_KB: dict[str, Any] = {
         "last_updated": datetime.utcnow().isoformat(),
     },
 }
+
+
+def _norm_url(url: str) -> str:
+    return url.rstrip("/").strip()
 
 
 class KnowledgeBaseStore:
@@ -133,9 +138,15 @@ class KnowledgeBaseStore:
 
     def get_qa_cache(self, board: str) -> dict[str, str]:
         raw = self.get_raw(board)
-        return dict(raw.get("qa_cache", {})) if raw else {}
+        if not raw:
+            return {}
+        return {
+            re.sub(r"\s+", " ", k.lower()).strip(): v
+            for k, v in raw.get("qa_cache", {}).items()
+        }
 
     def set_qa_answer(self, board: str, key: str, answer: str) -> None:
+        key = re.sub(r"\s+", " ", key.lower()).strip()
         with self._lock:
             self._load()
             self._data.setdefault(board, {}).setdefault("qa_cache", {})[key] = answer
@@ -144,6 +155,7 @@ class KnowledgeBaseStore:
 
     def record_pending_questions(self, board: str, job_url: str, questions: list[dict]) -> None:
         """Persist unanswered required questions keyed by job URL for later review."""
+        job_url = _norm_url(job_url)
         with self._lock:
             self._load()
             self._data.setdefault(board, {}).setdefault("pending_questions", {})[job_url] = questions
@@ -151,6 +163,7 @@ class KnowledgeBaseStore:
             self._save_unlocked()
 
     def get_pending_questions(self, board: str, job_url: str) -> list[dict]:
+        job_url = _norm_url(job_url)
         raw = self.get_raw(board)
         return list(raw.get("pending_questions", {}).get(job_url, [])) if raw else []
 
@@ -160,6 +173,7 @@ class KnowledgeBaseStore:
             self._load()
             if board not in self._data:
                 return
+            job_url = _norm_url(job_url)
             pending = self._data[board].setdefault("pending_questions", {})
             questions = [q for q in pending.get(job_url, []) if q.get("label") != question_label]
             if questions:
