@@ -585,7 +585,17 @@ async def handle_easy_apply_modal(
             pass  # confirmation or static page
 
         page_data = await modal.evaluate(_EXTRACT_FIELDS_JS)
+        logger.debug(
+            "easy_apply_modal_fields_extracted",
+            page_title=page_data.get("page_title", ""),
+            field_count=len(page_data.get("fields", [])),
+            fields=[
+                {"type": f["type"], "label": f["label"], "required": f.get("required", False)}
+                for f in page_data.get("fields", [])
+            ],
+        )
         page_type = classify_page(page_data)
+        logger.debug("easy_apply_page_classified", as_=page_type.name)
 
         logger.info(
             "easy_apply_modal_page",
@@ -638,12 +648,15 @@ async def handle_easy_apply_modal(
         submit = modal.locator("button[aria-label='Submit application']")
         if await submit.count() > 0 and await submit.is_visible():
             await asyncio.sleep(random.uniform(0.5, 1.0))
+            logger.debug("easy_apply_submit_clicking")
             await human_move_and_click(page, submit_sel)
             # LinkedIn closes the Easy Apply modal immediately on submission and then
             # shows a separate "Application sent" confirmation (different shadow-DOM
             # component). Detachment of .jobs-easy-apply-modal is the success signal.
+            logger.debug("easy_apply_submit_waiting_for_modal_detach")
             try:
                 await page.wait_for_selector(_MODAL_CSS, state="detached", timeout=10_000)
+                logger.debug("easy_apply_modal_detached")
             except Exception:
                 # Timed out — if the Submit button is still visible the click may not
                 # have registered; raise so the retry loop can try again.
@@ -654,6 +667,7 @@ async def handle_easy_apply_modal(
 
         # Capture signature before clicking Next to detect stuck pages
         sig_before = await modal.evaluate(_SIGNATURE_JS)
+        logger.debug("easy_apply_signature_before_next", signature=sig_before)
 
         # Click Next / Review
         next_sel = (
@@ -671,7 +685,7 @@ async def handle_easy_apply_modal(
 
         # Poll up to 6 s for the page signature to change (LinkedIn transitions can be slow)
         sig_after = sig_before
-        for _ in range(12):
+        for poll_i in range(12):
             await asyncio.sleep(0.5)
             if await page.locator(_MODAL_CSS).count() == 0:
                 raise RuntimeError(
@@ -679,7 +693,9 @@ async def handle_easy_apply_modal(
                     f"(page {page_num}: {page_data.get('page_title', '')})"
                 )
             sig_after = await modal.evaluate(_SIGNATURE_JS)
+            logger.debug("easy_apply_signature_poll", iteration=poll_i, signature=sig_after)
             if sig_after != sig_before:
+                logger.debug("easy_apply_signature_changed", before=sig_before, after=sig_after)
                 break
 
         if sig_after == sig_before:

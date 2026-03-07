@@ -72,13 +72,17 @@ class LinkedInApplicator(AbstractApplicator):
         value = step.render_value(context)
 
         if action == "navigate":
-            await page.goto(value or context.get("job_url", ""), wait_until="load")
+            nav_url = value or context.get("job_url", "")
+            logger.debug("navigate_start", url=nav_url)
+            await page.goto(nav_url, wait_until="load")
+            logger.debug("navigate_complete", url=page.url)
             # If LinkedIn redirected to login/checkpoint, re-authenticate and retry navigation
             current_url = page.url
             if any(p in current_url for p in ("/login", "/checkpoint/", "/challenge/")):
                 logger.warning("linkedin_post_navigate_auth_required", url=current_url)
                 await self.login()
-                await page.goto(value or context.get("job_url", ""), wait_until="load")
+                await page.goto(nav_url, wait_until="load")
+                logger.debug("navigate_complete_post_login", url=page.url)
             # Dismiss any contextual sign-in modal that LinkedIn injects and blocks UI interaction.
             # The modal is activated by JavaScript that runs after the load event, so wait for it.
             try:
@@ -116,9 +120,11 @@ class LinkedInApplicator(AbstractApplicator):
         """Click with retry across comma-separated selector fallbacks."""
         selectors = [s.strip() for s in selector.split(",")]
         for sel in selectors:
+            logger.debug("smart_click_trying", selector=sel)
             try:
                 await self.page.wait_for_selector(sel, timeout=5000)
                 await human_move_and_click(self.page, sel)
+                logger.debug("smart_click_success", selector=sel)
                 return
             except Exception:
                 continue
@@ -128,9 +134,11 @@ class LinkedInApplicator(AbstractApplicator):
         """Fill a field with retry across comma-separated selector fallbacks."""
         selectors = [s.strip() for s in selector.split(",")]
         for sel in selectors:
+            logger.debug("smart_fill_trying", selector=sel, value_len=len(value))
             try:
                 await self.page.wait_for_selector(sel, timeout=5000)
                 await human_type(self.page, sel, value)
+                logger.debug("smart_fill_success", selector=sel)
                 return
             except Exception:
                 continue
@@ -139,12 +147,14 @@ class LinkedInApplicator(AbstractApplicator):
     async def login(self) -> None:
         """Log in to LinkedIn, handling session restore and security challenges."""
         # Stage 1 — Session check: if cookies were restored, we may already be logged in.
+        logger.debug("login_stage1_session_check")
         await self.page.goto("https://www.linkedin.com/feed", wait_until="domcontentloaded")
         if "/feed" in self.page.url:
             logger.info("linkedin_session_valid_skipping_login")
             return
 
         # Stage 2 — Fresh login
+        logger.debug("login_stage2_fresh_login", url=self.page.url)
         if not config.linkedin_email:
             raise RuntimeError("LinkedIn credentials not configured in .env")
 
@@ -159,6 +169,7 @@ class LinkedInApplicator(AbstractApplicator):
         )
         await self.page.click("button[type='submit']")
         await self.page.wait_for_load_state("load")
+        logger.debug("login_stage2_submitted", url=self.page.url)
 
         # Stage 3 — Challenge handling
         if "/checkpoint/" in self.page.url or "/challenge/" in self.page.url:

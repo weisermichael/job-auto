@@ -73,10 +73,15 @@ class IndeedApplicator(AbstractApplicator):
         value = step.render_value(context)
 
         if action == "navigate":
-            await page.goto(value or context["job_url"], wait_until="domcontentloaded")
+            nav_url = value or context["job_url"]
+            logger.debug("navigate_start", url=nav_url)
+            await page.goto(nav_url, wait_until="domcontentloaded")
+            logger.debug("navigate_complete", url=page.url)
 
         elif action == "click":
+            logger.debug("apply_button_clicking", selector=selector)
             await self._smart_click(selector or "")
+            logger.debug("apply_button_clicked", url=page.url)
 
         elif action == "fill":
             if not value:
@@ -126,6 +131,7 @@ class IndeedApplicator(AbstractApplicator):
                 try:
                     visible = await self.page.is_visible(sel, timeout=1000)
                     if visible:
+                        logger.debug("indeed_form_page_advance", selector=sel, url=self.page.url)
                         await human_move_and_click(self.page, sel)
                         await asyncio.sleep(random.uniform(1.0, 2.0))
                         clicked = True
