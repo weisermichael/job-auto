@@ -541,6 +541,33 @@ def answer_questions(board: str, retry: bool) -> None:
 
 
 # ──────────────────────────────────────────────────────────
+# verify-answers
+# ──────────────────────────────────────────────────────────
+
+@cli.command("verify-answers")
+@click.option(
+    "--board", "-b", default="linkedin",
+    type=click.Choice(["linkedin", "indeed", "nodesk"], case_sensitive=False),
+    help="Board whose pending pattern-matched answers to review",
+)
+def verify_answers_cmd(board: str) -> None:
+    """Review and confirm pattern-matched answers before they're permanently cached.
+
+    \b
+    Answers applied via heuristics (e.g. "years of experience" → "4") are held
+    in qa_pending_verification until you confirm or override them here.
+    Once confirmed, they graduate to qa_cache and are reused automatically.
+    """
+    from job_auto.tui.verify_answers import verify_answers_for_board
+
+    verified = verify_answers_for_board(board)
+    if verified:
+        console.print(f"[green]{verified} answer(s) confirmed and saved to cache.[/green]")
+    else:
+        console.print(f"[yellow]No answers pending verification for '{board}'.[/yellow]")
+
+
+# ──────────────────────────────────────────────────────────
 # retry-needs-answers
 # ──────────────────────────────────────────────────────────
 
