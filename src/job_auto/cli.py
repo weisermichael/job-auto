@@ -61,11 +61,8 @@ def apply(url: str, auto: bool, dry_run: bool, tailor: bool) -> None:
             if app.status == ApplicationStatus.NEEDS_ANSWERS:
                 console.print(
                     "\n[yellow]Some required questions could not be answered automatically.[/yellow]\n"
-                    "  1. Find the question labels in [bold]storage/knowledge_base.json[/bold] "
-                    "under [bold]linkedin → pending_questions[/bold].\n"
-                    "  2. Add answers under [bold]linkedin → qa_cache[/bold] "
-                    "(key = exact question text, value = your answer).\n"
-                    f"  3. Re-run: [bold]job-auto apply {url}[/bold]"
+                    "  Run [bold]job-auto answer-questions[/bold] to provide answers interactively,\n"
+                    "  then [bold]job-auto retry-needs-answers[/bold] to resubmit."
                 )
         except PipelineError as e:
             console.print(f"[bold red]Pipeline error:[/bold red] {e}")
@@ -439,6 +436,184 @@ def retry_failed(auto: bool) -> None:
                     await pipeline.apply(str(job.url), dry_run=False)
                 except Exception as e:
                     console.print(f"  [red]Error: {e}[/red]")
+
+    asyncio.run(_run())
+
+
+# ──────────────────────────────────────────────────────────
+# answer-questions
+# ──────────────────────────────────────────────────────────
+
+@cli.command("answer-questions")
+@click.option(
+    "--board", "-b", default="linkedin",
+    type=click.Choice(["linkedin", "indeed", "nodesk"], case_sensitive=False),
+    help="Board to filter NEEDS_ANSWERS applications by",
+)
+@click.option("--retry", is_flag=True, help="Automatically retry each app after answering without prompting")
+def answer_questions(board: str, retry: bool) -> None:
+    """Answer required questions for NEEDS_ANSWERS applications.
+
+    \b
+    After answering, run: job-auto retry-needs-answers
+    """
+    from rich.prompt import Confirm, Prompt
+    from rich.table import Table
+
+    from job_auto.db import repository as repo
+    from job_auto.db.session import get_session
+    from job_auto.knowledge_base.store import kb_store
+    from job_auto.models.application import ApplicationStatus
+    from job_auto.pipeline import Pipeline
+    from job_auto.tui.answer_questions import answer_questions_for_app
+
+    with get_session() as session:
+        apps = repo.list_applications(session, status=ApplicationStatus.NEEDS_ANSWERS)
+        jobs = {j.id: j for j in repo.list_jobs(session, limit=500)}
+
+    board_apps = [
+        (a, jobs[a.job_id])
+        for a in apps
+        if a.job_id in jobs and jobs[a.job_id].board.value == board.lower()
+    ]
+
+    if not board_apps:
+        console.print(f"[yellow]No NEEDS_ANSWERS applications found for board '{board}'.[/yellow]")
+        return
+
+    pending = [
+        (a, j) for a, j in board_apps
+        if kb_store.get_pending_questions(board, str(j.url))
+    ]
+
+    if not pending:
+        console.print(f"[yellow]No pending questions found for board '{board}'.[/yellow]")
+        console.print("Questions may already be answered. Run [bold]job-auto retry-needs-answers[/bold].")
+        return
+
+    table = Table(
+        title=f"NEEDS_ANSWERS Applications \u2014 {board.title()} ({len(pending)})",
+        border_style="yellow",
+    )
+    table.add_column("#", justify="right", style="dim")
+    table.add_column("App ID", style="dim")
+    table.add_column("Company", style="bold")
+    table.add_column("Title")
+    table.add_column("Questions", justify="right")
+
+    for i, (app, job) in enumerate(pending, 1):
+        n_q = len(kb_store.get_pending_questions(board, str(job.url)))
+        table.add_row(str(i), app.id, job.company[:25], job.title[:40], str(n_q))
+
+    console.print(table)
+
+    raw = Prompt.ask("Enter number to answer (or 'all')", default="1")
+    if raw.lower() == "all":
+        selected = pending
+    elif raw.isdigit() and 1 <= int(raw) <= len(pending):
+        selected = [pending[int(raw) - 1]]
+    else:
+        console.print("[red]Invalid selection.[/red]")
+        return
+
+    pipeline = Pipeline(autonomous=True)
+
+    async def _run():
+        for app, job in selected:
+            answer_questions_for_app(app, job, board)
+            do_retry = retry or Confirm.ask(
+                f"Retry application for {job.company} \u2014 {job.title} now?",
+                default=True,
+            )
+            if do_retry:
+                try:
+                    result = await pipeline.apply(str(job.url))
+                    console.print(
+                        f"[bold green]\u2713 Done[/bold green]  "
+                        f"status=[cyan]{result.status}[/cyan]  id={result.id}"
+                    )
+                except Exception as e:
+                    console.print(f"[red]Error: {e}[/red]")
+
+    asyncio.run(_run())
+
+
+# ──────────────────────────────────────────────────────────
+# retry-needs-answers
+# ──────────────────────────────────────────────────────────
+
+@cli.command("retry-needs-answers")
+def retry_needs_answers() -> None:
+    """Retry NEEDS_ANSWERS applications whose questions have all been answered.
+
+    \b
+    Skips any application that still has unanswered questions in the knowledge base.
+    Run 'job-auto answer-questions' first to provide answers.
+    """
+    from rich.table import Table
+
+    from job_auto.db import repository as repo
+    from job_auto.db.session import get_session
+    from job_auto.knowledge_base.store import kb_store
+    from job_auto.models.application import ApplicationStatus
+    from job_auto.pipeline import Pipeline
+
+    with get_session() as session:
+        apps = repo.list_applications(session, status=ApplicationStatus.NEEDS_ANSWERS)
+        jobs = {j.id: j for j in repo.list_jobs(session, limit=500)}
+
+    retryable: list[tuple] = []
+    skipped: list[tuple] = []
+
+    for app in apps:
+        job = jobs.get(app.job_id)
+        if not job:
+            continue
+        board = job.board.value
+        pending = kb_store.get_pending_questions(board, str(job.url))
+        if pending:
+            skipped.append((app, job, len(pending)))
+        else:
+            retryable.append((app, job))
+
+    for app, job, n in skipped:
+        console.print(
+            f"[yellow]Skipping {job.company} \u2014 {job.title}: {n} question(s) still unanswered. "
+            "Run 'answer-questions' first.[/yellow]"
+        )
+
+    if not retryable:
+        console.print("[yellow]No applications ready to retry.[/yellow]")
+        return
+
+    console.print(f"[bold]Retrying {len(retryable)} application(s)...[/bold]")
+    pipeline = Pipeline(autonomous=True)
+
+    async def _run():
+        results = []
+        for app, job in retryable:
+            console.print(f"  Retrying {app.id} \u2014 {job.company} / {job.title}")
+            try:
+                result = await pipeline.apply(str(job.url))
+                results.append((app, job, result.status.value, None))
+            except Exception as e:
+                results.append((app, job, "error", str(e)))
+
+        table = Table(title="Retry Results", border_style="blue")
+        table.add_column("App ID", style="dim")
+        table.add_column("Company", style="bold")
+        table.add_column("Title")
+        table.add_column("Status")
+
+        status_colors = {"submitted": "green", "failed": "red", "needs_answers": "yellow"}
+        for app, job, status_val, err in results:
+            color = status_colors.get(status_val, "white")
+            display = f"[{color}]{status_val}[/{color}]"
+            if err:
+                display += f" [dim]({err[:50]})[/dim]"
+            table.add_row(app.id, job.company[:25], job.title[:40], display)
+
+        console.print(table)
 
     asyncio.run(_run())
 

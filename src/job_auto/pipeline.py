@@ -325,7 +325,7 @@ class Pipeline:
             )
 
         # Cached base PDF — regenerate only when resume.yaml is newer
-        cached_pdf = config.resumes_dir / "base_resume.pdf"
+        cached_pdf = config.resumes_dir / "Michael_Weiser_Resume.pdf"
         yaml_path = config.resume_yaml_path
         needs_render = (
             not cached_pdf.exists()

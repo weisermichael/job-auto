@@ -16,6 +16,8 @@ job-auto scan linkedin -q "backend engineer" --auth-flow --easy-apply
 job-auto apply-all --limit 5 [--tailor]
 job-auto submit-queued --limit 10
 job-auto retry-failed [--auto]
+job-auto answer-questions [--board linkedin] [--retry]
+job-auto retry-needs-answers
 job-auto jobs [--unapplied] [--board linkedin] [--id <job-id>]
 job-auto review
 job-auto status [-s submitted]
@@ -60,7 +62,7 @@ By default (`Pipeline(tailor=False)`), the pipeline skips AI and attaches a cach
 Prompt templates live in `ai/prompts/*.md` with `{placeholder}` substitutions. **Do not use `str.format()`** on these templates — the JSON schema examples in the templates contain literal `{...}` braces that break it. Use the `_render(template, **kwargs)` helper defined in each AI module (it does `str.replace` for each key).
 
 ### Automation (Playwright bots)
-`automation/base.py:AbstractApplicator` runs procedure steps from the knowledge base. On step failure it retries with random back-off up to `config.max_retries` (default 3). The AI self-healing loop (`_self_heal`) is **currently disabled** (commented out at `base.py:160`). `UnansweredQuestionsError` (from `automation/easy_apply_modal.py`) is caught and parks the application at `NEEDS_ANSWERS` status — user must add answers to `storage/knowledge_base.json` under `linkedin → qa_cache` then re-run. Concrete subclasses (`linkedin.py`, `indeed.py`, `nodesk.py`) implement `load_procedure()` and `execute_step()`.
+`automation/base.py:AbstractApplicator` runs procedure steps from the knowledge base. On step failure it retries with random back-off up to `config.max_retries` (default 3). The AI self-healing loop (`_self_heal`) is **currently disabled** (commented out at `base.py:160`). `UnansweredQuestionsError` (from `automation/easy_apply_modal.py`) is caught and parks the application at `NEEDS_ANSWERS` status. Run `job-auto answer-questions` to answer them interactively (type-aware prompts per field); answers are written to `qa_cache` and the pending entry is resolved immediately after each answer (Ctrl-C safe). Then run `job-auto retry-needs-answers` to resubmit. Concrete subclasses (`linkedin.py`, `indeed.py`, `nodesk.py`) implement `load_procedure()` and `execute_step()`.
 
 ### Application status lifecycle
 `models/application.py:ApplicationStatus` states (roughly in order):
@@ -69,7 +71,7 @@ Terminal states: `SUBMITTED`, `REVIEW_REJECTED`, `OFFER`, `WITHDRAWN`.
 Retry-eligible: `FAILED` (while `failure_count < 3`), `NEEDS_ANSWERS`, `SUBMITTING` (stuck crash).
 
 ### Knowledge base
-`storage/knowledge_base.json` stores per-board procedures, learned selector patches, and AI notes. Access via the `kb_store` singleton in `knowledge_base/store.py`. Thread-safe. On success `updater.record_success()` is called; on failure `updater.record_failure()` and optionally `updater.record_patch()` for the corrective selector.
+`storage/knowledge_base.json` stores per-board procedures, learned selector patches, and AI notes. Access via the `kb_store` singleton in `knowledge_base/store.py`. Thread-safe. On success `updater.record_success()` is called; on failure `updater.record_failure()` and optionally `updater.record_patch()` for the corrective selector. Pending unanswered questions are stored under `<board>.pending_questions[job_url]`; `kb_store.resolve_pending_question(board, job_url, label)` removes one answered question and drops the job URL key when the last question is resolved. `kb_store.list_all_pending_questions(board)` returns the full `{job_url: questions}` dict for a board.
 
 ### LinkedIn session
 A Playwright storage-state session is saved to `storage/linkedin_session.json` after first login. Subsequent runs reuse it. `--auth-flow` on `scan` uses the authenticated Playwright scraper (`LinkedInAuthScraper`) which applies server-side Easy Apply filtering. If the session is missing or stale, `LinkedInAuthError` is raised.
