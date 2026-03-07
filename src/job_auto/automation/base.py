@@ -13,6 +13,7 @@ from typing import Any, Optional
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeout
 
 from job_auto.ai.error_analyzer import analyze_failure
+from job_auto.automation.exceptions import SessionExpiredError
 from job_auto.config import config
 from job_auto.db import repository as repo
 from job_auto.db.session import get_session
@@ -67,6 +68,14 @@ class AbstractApplicator(ABC):
         Execute a single procedure step.
         Return True on success, raise on failure.
         """
+
+    async def _recover_session(self, context: dict[str, str], step: Optional["ProcedureStep"] = None) -> bool:
+        """Re-authenticate and return to the job page after an unexpected redirect.
+
+        Override in board-specific subclasses.  Return True if recovery succeeded
+        and the step should be retried, False to let the normal failure path run.
+        """
+        return False
 
     async def submit(
         self,
@@ -141,14 +150,35 @@ class AbstractApplicator(ABC):
                 except ImportError:
                     pass
 
+                current_url = self.page.url
                 error_msg = str(e)
-                logger.debug("step_exception_url", step=step.order, url=self.page.url)
+                logger.debug("step_exception_url", step=step.order, url=current_url)
                 logger.warning(
                     "step_failed",
                     step=step.order,
                     attempt=attempt,
                     error=error_msg[:200],
                 )
+
+                # Session expired mid-step — attempt re-auth before the next retry
+                if isinstance(e, SessionExpiredError) and attempt < config.max_retries:
+                    logger.warning(
+                        "session_expired_recovering",
+                        step=step.order,
+                        attempt=attempt,
+                        url=e.url,
+                    )
+                    recovered = await self._recover_session(context, step)
+                    if recovered:
+                        delay = random.uniform(1, 3)
+                        logger.debug(
+                            "step_retry",
+                            step=step.order,
+                            attempt=attempt + 1,
+                            delay_s=round(delay, 2),
+                        )
+                        await asyncio.sleep(delay)
+                        continue
 
                 if attempt >= config.max_retries:
                     # Take screenshot for record

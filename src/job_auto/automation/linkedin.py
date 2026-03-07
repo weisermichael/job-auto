@@ -11,6 +11,7 @@ from playwright.async_api import Page
 
 from job_auto.automation.base import AbstractApplicator, ApplicationResult
 from job_auto.automation.browser import human_move_and_click, human_type
+from job_auto.automation.exceptions import SessionExpiredError
 from job_auto.config import config
 from job_auto.knowledge_base.store import kb_store
 from job_auto.models.application import ApplicationRecord
@@ -19,6 +20,16 @@ from job_auto.models.procedure import ApplicationProcedure, FormSelector, Proced
 from job_auto.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _is_auth_redirect(url: str) -> bool:
+    """Return True if the URL indicates LinkedIn redirected us away from the target page."""
+    if any(p in url for p in ("/login", "/uas/", "/checkpoint/", "/challenge/", "/authwall", "/feed")):
+        return True
+    # Bare LinkedIn homepage (no meaningful path) — typical for logged-out redirect
+    stripped = url.rstrip("/")
+    return stripped in ("https://www.linkedin.com", "http://www.linkedin.com")
+
 
 _DEFAULT_PROCEDURE = ApplicationProcedure(
     board="linkedin",
@@ -104,6 +115,9 @@ class LinkedInApplicator(AbstractApplicator):
             await self._smart_fill(selector or "", value)
 
         elif action == "submit":
+            # Bail out immediately if we've been redirected away from the job page
+            if _is_auth_redirect(self.page.url):
+                raise SessionExpiredError(self.page.url)
             from job_auto.automation.easy_apply_modal import handle_easy_apply_modal
             await handle_easy_apply_modal(self.page, context, self._profile)
 
@@ -127,6 +141,11 @@ class LinkedInApplicator(AbstractApplicator):
                 logger.debug("smart_click_success", selector=sel)
                 return
             except Exception:
+                # If LinkedIn redirected us away (session expiry / anti-bot), fail fast
+                current = self.page.url
+                if _is_auth_redirect(current):
+                    logger.warning("linkedin_unexpected_redirect_in_click", url=current)
+                    raise SessionExpiredError(current)
                 continue
         raise RuntimeError(f"Could not find clickable element: {selector}")
 
@@ -143,6 +162,37 @@ class LinkedInApplicator(AbstractApplicator):
             except Exception:
                 continue
         raise RuntimeError(f"Could not find fillable element: {selector}")
+
+    async def _recover_session(
+        self,
+        context: dict[str, str],
+        step: object = None,
+    ) -> bool:
+        """Re-authenticate and navigate back to the job page after an unexpected redirect.
+
+        For the 'submit' step, also re-clicks Easy Apply so the modal is open
+        when the step is retried.
+        """
+        try:
+            await self.login()
+            job_url = context.get("job_url", "")
+            if job_url:
+                logger.debug("session_recovery_navigate", url=job_url)
+                await self.page.goto(job_url, wait_until="load")
+                logger.debug("session_recovery_complete", url=self.page.url)
+                # Re-open the Easy Apply modal so the submit step retry can proceed
+                if getattr(step, "action", None) == "submit":
+                    logger.debug("session_recovery_reopening_easy_apply")
+                    await self._smart_click(
+                        "a[aria-label*='Easy Apply'], "
+                        ".jobs-apply-button--top-card, "
+                        "button[aria-label*='Easy Apply']"
+                    )
+                    await asyncio.sleep(1.5)
+            return True
+        except Exception as exc:
+            logger.error("session_recovery_failed", error=str(exc))
+            return False
 
     async def login(self) -> None:
         """Log in to LinkedIn, handling session restore and security challenges."""
