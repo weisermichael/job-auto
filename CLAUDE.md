@@ -18,6 +18,7 @@ job-auto submit-queued --limit 10
 job-auto retry-failed [--auto]
 job-auto answer-questions [--board linkedin] [--retry]
 job-auto retry-needs-answers
+job-auto verify-answers [--board linkedin]
 job-auto jobs [--unapplied] [--board linkedin] [--id <job-id>]
 job-auto review
 job-auto status [-s submitted]
@@ -72,6 +73,8 @@ Retry-eligible: `FAILED` (while `failure_count < 3`), `NEEDS_ANSWERS`, `SUBMITTI
 
 ### Knowledge base
 `storage/knowledge_base.json` stores per-board procedures, learned selector patches, and AI notes. Access via the `kb_store` singleton in `knowledge_base/store.py`. Thread-safe. On success `updater.record_success()` is called; on failure `updater.record_failure()` and optionally `updater.record_patch()` for the corrective selector. Pending unanswered questions are stored under `<board>.pending_questions[job_url]`; `kb_store.resolve_pending_question(board, job_url, label)` removes one answered question and drops the job URL key when the last question is resolved. `kb_store.list_all_pending_questions(board)` returns the full `{job_url: questions}` dict for a board.
+
+Two Q&A tiers exist in the KB: `qa_cache` holds verified answers (profile-derived or user-confirmed); `qa_pending_verification` holds pattern-matched answers (heuristics like "years of experience" → `"4"`) that were applied to forms but not yet confirmed. Run `job-auto verify-answers` to review and confirm them — confirmed answers graduate to `qa_cache`. Methods: `kb_store.get_qa_pending_verification(board)`, `kb_store.add_qa_pending_verification(board, key, label, answer, ftype)`, `kb_store.resolve_qa_pending_verification(board, key, confirmed_answer)`.
 
 ### LinkedIn session
 A Playwright storage-state session is saved to `storage/linkedin_session.json` after first login. Subsequent runs reuse it. `--auth-flow` on `scan` uses the authenticated Playwright scraper (`LinkedInAuthScraper`) which applies server-side Easy Apply filtering. If the session is missing or stale, `LinkedInAuthError` is raised.
