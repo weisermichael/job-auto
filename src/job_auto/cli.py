@@ -15,13 +15,15 @@ from job_auto.utils.logging import configure_logging
 console = Console()
 
 
-def _setup_logging() -> None:
-    configure_logging(level=config.log_level, log_file=config.log_file)
+def _setup_logging(verbose: bool = False) -> None:
+    level = "DEBUG" if verbose else config.log_level
+    configure_logging(level=level, log_file=config.log_file)
 
 
 @click.group()
 @click.version_option(version="0.1.0", prog_name="job-auto")
-def cli() -> None:
+@click.option("-v", "--verbose", is_flag=True, default=False, help="Enable verbose (DEBUG) logging.")
+def cli(verbose: bool) -> None:
     """Job Application Automation System.
 
     \b
@@ -35,7 +37,7 @@ def cli() -> None:
       job-auto review                 Review pending applications
       job-auto status                 Show recent application history
     """
-    _setup_logging()
+    _setup_logging(verbose=verbose)
 
 
 # ──────────────────────────────────────────────────────────

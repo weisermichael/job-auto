@@ -106,9 +106,18 @@ class AbstractApplicator(ABC):
     ) -> ApplicationResult:
         """Execute a step; on failure, attempt AI-guided self-healing."""
         for attempt in range(config.max_retries + 1):
+            logger.debug(
+                "step_start",
+                step=step.order,
+                action=step.action,
+                selector=step.selector,
+                value=step.value,
+                attempt=attempt,
+            )
             try:
                 success = await self.execute_step(step, context)
                 if success:
+                    logger.debug("step_success", step=step.order, action=step.action)
                     if step.wait_after_ms > 0:
                         await asyncio.sleep(step.wait_after_ms / 1000)
                     return ApplicationResult(success=True)
@@ -133,6 +142,7 @@ class AbstractApplicator(ABC):
                     pass
 
                 error_msg = str(e)
+                logger.debug("step_exception_url", step=step.order, url=self.page.url)
                 logger.warning(
                     "step_failed",
                     step=step.order,
@@ -170,7 +180,9 @@ class AbstractApplicator(ABC):
                 #         logger.warning("self_heal_correction_failed", error=str(heal_err)[:200])
 
                 # Random back-off before retry
-                await asyncio.sleep(random.uniform(1, 3))
+                delay = random.uniform(1, 3)
+                logger.debug("step_retry", step=step.order, attempt=attempt + 1, delay_s=round(delay, 2))
+                await asyncio.sleep(delay)
 
         return ApplicationResult(success=False, message="Max retries exceeded")
 

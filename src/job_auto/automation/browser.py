@@ -105,12 +105,16 @@ async def browser_context(
     context = await browser.new_context(**context_kwargs)
 
     # Block tracking/analytics to reduce fingerprinting surface
+    async def _block_tracking(route):
+        logger.debug("tracking_route_blocked", url=route.request.url)
+        await route.abort()
+
     await context.route(
         "**/(google-analytics|googletagmanager|hotjar|segment).**",
-        lambda route: route.abort(),
+        _block_tracking,
     )
 
-    logger.debug("browser_context_created", viewport=viewport, headless=headless)
+    logger.debug("browser_context_created", viewport=viewport, user_agent=user_agent, headless=headless)
     try:
         yield browser, context
     finally:

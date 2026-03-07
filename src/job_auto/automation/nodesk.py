@@ -54,14 +54,19 @@ class NodeskApplicator(AbstractApplicator):
         value = step.render_value(context)
 
         if action == "navigate":
-            await page.goto(value or context["job_url"], wait_until="domcontentloaded")
+            nav_url = value or context["job_url"]
+            logger.debug("navigate_start", url=nav_url)
+            await page.goto(nav_url, wait_until="domcontentloaded")
+            logger.debug("navigate_complete", url=page.url)
 
         elif action == "click":
             selector = step.selector or ""
             for sel in [s.strip() for s in selector.split(",")]:
+                logger.debug("apply_button_trying", selector=sel)
                 try:
                     await page.wait_for_selector(sel, timeout=5000)
                     await page.click(sel)
+                    logger.debug("apply_button_clicked", selector=sel)
                     return True
                 except Exception:
                     continue
