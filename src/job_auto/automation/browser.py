@@ -3,17 +3,57 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import random
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator, Optional
 
-from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
+from playwright.async_api import Browser, BrowserContext, Page, Playwright
 
 from job_auto.config import config
 from job_auto.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+_LAUNCH_ARGS = [
+    "--no-sandbox",
+    "--disable-blink-features=AutomationControlled",
+    "--disable-dev-shm-usage",
+    "--disable-web-security",
+]
+
+# WSL2 Wayland socket — Chrome needs this for headed mode when WAYLAND_DISPLAY isn't set.
+# Evaluated once at import time; uses the real uid so it works for any user, not just uid 1000.
+_WAYLAND_SOCKET = Path(f"/run/user/{os.getuid()}/wayland-0")
+_WAYLAND_SOCKET_EXISTS: bool = _WAYLAND_SOCKET.exists()
+
+
+def _headed_launch_args_and_env(base_args: list[str]) -> tuple[list[str], dict]:
+    """Return (args, extra_env) for headed Chromium when Wayland is available.
+
+    Chrome needs --ozone-platform=wayland to use Wayland even when WAYLAND_DISPLAY
+    is set.  If WAYLAND_DISPLAY is not set but the WSLg socket exists, we inject
+    it into the subprocess env as well.
+    """
+    if os.environ.get("WAYLAND_DISPLAY"):
+        return base_args + ["--ozone-platform=wayland"], {}
+    if _WAYLAND_SOCKET_EXISTS:
+        logger.debug("wsl2_wayland_injected", socket=str(_WAYLAND_SOCKET))
+        return (
+            base_args + ["--ozone-platform=wayland"],
+            {**os.environ, "WAYLAND_DISPLAY": str(_WAYLAND_SOCKET)},
+        )
+    return base_args, {}
+
+
+async def _do_launch(playwright: Playwright, headless: bool) -> Browser:
+    """Launch Chromium with stealth args, injecting Wayland env when headed."""
+    if not headless:
+        args, env = _headed_launch_args_and_env(_LAUNCH_ARGS)
+        return await playwright.chromium.launch(headless=False, args=args, env=env or None)
+    return await playwright.chromium.launch(headless=True, args=_LAUNCH_ARGS)
+
 
 _VIEWPORTS = [
     {"width": 1920, "height": 1080},
@@ -63,32 +103,43 @@ async def human_move_and_click(page: Page, selector: str) -> None:
 
 
 @asynccontextmanager
+async def launch_browser(playwright: Playwright, headless: bool | None = None) -> AsyncGenerator[Browser, None]:
+    """Launch a browser and close it on exit (no context)."""
+    if headless is None:
+        headless = config.headless_browser
+    browser = await _do_launch(playwright, headless)
+    try:
+        yield browser
+    finally:
+        await browser.close()
+
+
+@asynccontextmanager
 async def browser_context(
-    playwright: Playwright,
-    headless: Optional[bool] = None,
-    storage_state_path: Optional[Path] = None,
+    playwright_or_browser: Playwright | Browser,
+    headless: bool | None = None,
+    storage_state_path: Path | None = None,
 ) -> AsyncGenerator[tuple[Browser, BrowserContext], None]:
     """Create a stealth browser context.
+
+    Accepts either a Playwright instance (launches and owns a new browser) or
+    an existing Browser instance (uses it directly, does not close it on exit).
 
     If storage_state_path is provided and exists, the saved cookies/localStorage
     are loaded so the session is restored.  On exit the current state is written
     back to the same path so future runs inherit it.
     """
-    if headless is None:
-        headless = config.headless_browser
+    if isinstance(playwright_or_browser, Browser):
+        browser = playwright_or_browser
+        own_browser = False
+    else:
+        if headless is None:
+            headless = config.headless_browser
+        browser = await _do_launch(playwright_or_browser, headless)
+        own_browser = True
 
     viewport = random.choice(_VIEWPORTS)
     user_agent = random.choice(_USER_AGENTS)
-
-    browser = await playwright.chromium.launch(
-        headless=headless,
-        args=[
-            "--no-sandbox",
-            "--disable-blink-features=AutomationControlled",
-            "--disable-dev-shm-usage",
-            "--disable-web-security",
-        ],
-    )
 
     context_kwargs: dict = dict(
         viewport=viewport,
@@ -123,7 +174,8 @@ async def browser_context(
             await context.storage_state(path=str(storage_state_path))
             logger.debug("browser_session_saved", path=str(storage_state_path))
         await context.close()
-        await browser.close()
+        if own_browser:
+            await browser.close()
 
 
 @asynccontextmanager
