@@ -410,7 +410,6 @@ async def _fill_questions(
     fields: list[dict],
     profile: CandidateProfile,
     qa_cache: dict[str, str],
-    pending_verif_cache: dict[str, str],
 ) -> tuple[dict[str, str], list[dict], dict[str, tuple[str, str, str]]]:
     """Fill question fields.
 
@@ -437,17 +436,9 @@ async def _fill_questions(
 
         # Lookup order:
         # 1. qa_cache (verified answer) — use directly, no re-processing
-        # 2. pending_verif_cache (previously unverified answer) — reuse without re-adding to pending
-        # 3. Profile derivation (reliable, auto-cached) → new_answers
-        # 4. Pattern heuristics (uncertain, needs user review) → pending_verification
+        # 2. Profile derivation (reliable, auto-cached) → new_answers
+        # 3. Pattern heuristics (uncertain, needs user review) → pending_verification
         answer: str | None = qa_cache.get(cache_key)
-        is_pending_reuse = False
-
-        if answer is None:
-            reuse = pending_verif_cache.get(cache_key)
-            if reuse is not None:
-                answer = reuse
-                is_pending_reuse = True
 
         if answer is None:
             # Profile-derived answers — reliable, written to qa_cache
@@ -546,7 +537,6 @@ async def _fill_page(
     profile: CandidateProfile,
     context: dict,
     qa_cache: dict[str, str],
-    pending_verif_cache: dict[str, str],
 ) -> tuple[dict[str, str], list[dict], dict[str, tuple[str, str, str]]]:
     """Fill one modal page.
 
@@ -571,7 +561,7 @@ async def _fill_page(
         await _fill_work_auth(page, modal, fields, profile)
     elif page_type in (PageType.QUESTIONS, PageType.UNKNOWN):
         new_answers, unanswered, pending_verification = await _fill_questions(
-            page, modal, fields, profile, qa_cache, pending_verif_cache
+            page, modal, fields, profile, qa_cache
         )
     elif page_type == PageType.REVIEW:
         await _fill_review(page, modal, fields, profile)
@@ -606,8 +596,6 @@ async def handle_easy_apply_modal(
     """Drive the LinkedIn Easy Apply modal from first page through submission."""
     modal = page.locator(_MODAL_CSS).first
     qa_cache = kb_store.get_qa_cache("linkedin")
-    pending_verif_all = kb_store.get_qa_pending_verification("linkedin")
-    pending_verif_cache = {k: v["answer"] for k, v in pending_verif_all.items()}
     confirmed = False
 
     for page_num in range(12):  # max pages
@@ -643,7 +631,7 @@ async def handle_easy_apply_modal(
         )
 
         new_answers, unanswered, pending_verification = await _fill_page(
-            page, modal, page_data, page_type, profile, context, qa_cache, pending_verif_cache
+            page, modal, page_data, page_type, profile, context, qa_cache
         )
 
         # Profile-derived answers → qa_cache (verified, reliable)
