@@ -410,16 +410,19 @@ async def _fill_questions(
     fields: list[dict],
     profile: CandidateProfile,
     qa_cache: dict[str, str],
-) -> tuple[dict[str, str], list[dict]]:
+) -> tuple[dict[str, str], list[dict], dict[str, tuple[str, str, str, list[str]]]]:
     """Fill question fields.
 
     Returns:
-        (new_answers, unanswered) where new_answers is a dict of newly derived
-        {key: answer} for caching, and unanswered is a list of required fields
-        that could not be answered from the profile or cache.
+        (new_answers, unanswered, pending_verification) where:
+          - new_answers: profile-derived {key: answer} to write to qa_cache
+          - unanswered: required fields with no answer at all
+          - pending_verification: pattern-matched {key: (label, answer, type)} to write
+            to qa_pending_verification for async user review
     """
     new_answers: dict[str, str] = {}
     unanswered: list[dict] = []
+    pending_verification: dict[str, tuple[str, str, str, list[str]]] = {}
 
     for field in fields:
         label = field["label"]
@@ -430,29 +433,46 @@ async def _fill_questions(
             continue
 
         cache_key = re.sub(r"\s+", " ", label_lower).strip()
+
+        # Lookup order:
+        # 1. qa_cache (verified answer) — use directly, no re-processing
+        # 2. Profile derivation (reliable, auto-cached) → new_answers
+        # 3. Pattern heuristics (uncertain, needs user review) → pending_verification
         answer: str | None = qa_cache.get(cache_key)
 
         if answer is None:
-            # Derive answer from profile or patterns
-            if re.search(r"years of work experience.*with (.+)", label_lower):
-                answer = "0"
-            elif "linkedin profile" in label_lower:
+            # Profile-derived answers — reliable, written to qa_cache
+            if "linkedin profile" in label_lower:
                 answer = profile.urls.linkedin_profile
+                if answer:
+                    new_answers[cache_key] = answer
             elif "desired salary" in label_lower or "expected salary" in label_lower:
                 answer = profile.preferences.desired_salary
+                if answer:
+                    new_answers[cache_key] = answer
             elif "education" in label_lower and ftype == "select":
                 answer = profile.education.highest_level
+                if answer:
+                    new_answers[cache_key] = answer
             elif "background check" in label_lower:
                 answer = profile.preferences.willing_background_check
+                if answer:
+                    new_answers[cache_key] = answer
             elif "authorized" in label_lower and ftype in ("radio", "select"):
                 answer = profile.work_authorization.authorized_us
+                if answer:
+                    new_answers[cache_key] = answer
             elif "sponsorship" in label_lower and ftype in ("radio", "select"):
                 answer = profile.work_authorization.requires_sponsorship
-            else:
-                answer = None
+                if answer:
+                    new_answers[cache_key] = answer
+            # Pattern heuristics — uncertain, queue for user verification
+            elif re.search(r"years of work experience.*with (.+)", label_lower):
+                answer = "4"
+                if answer:
+                    pending_verification[cache_key] = (label, answer, ftype, field.get("options", []))
 
         if answer:
-            new_answers[cache_key] = answer
             loc = modal.get_by_label(label, exact=False)
             if await loc.count() > 0:
                 if ftype == "select":
@@ -485,7 +505,7 @@ async def _fill_questions(
                 "options": field.get("options", []),
             })
 
-    return new_answers, unanswered
+    return new_answers, unanswered, pending_verification
 
 
 async def _fill_review(page: Page, modal, fields: list[dict], profile: CandidateProfile) -> None:
@@ -517,16 +537,19 @@ async def _fill_page(
     profile: CandidateProfile,
     context: dict,
     qa_cache: dict[str, str],
-) -> tuple[dict[str, str], list[dict]]:
+) -> tuple[dict[str, str], list[dict], dict[str, tuple[str, str, str, list[str]]]]:
     """Fill one modal page.
 
     Returns:
-        (new_answers, unanswered) where unanswered lists required fields that
-        could not be answered (only populated for QUESTIONS / UNKNOWN pages).
+        (new_answers, unanswered, pending_verification) where:
+          - new_answers: profile-derived answers to write to qa_cache
+          - unanswered: required fields with no answer (QUESTIONS/UNKNOWN pages only)
+          - pending_verification: pattern-matched answers awaiting user review
     """
     fields = page_data.get("fields", [])
     new_answers: dict[str, str] = {}
     unanswered: list[dict] = []
+    pending_verification: dict[str, tuple[str, str, str, list[str]]] = {}
 
     if page_type == PageType.CONTACT:
         await _fill_contact(page, modal, fields, profile)
@@ -537,7 +560,9 @@ async def _fill_page(
     elif page_type == PageType.WORK_AUTH:
         await _fill_work_auth(page, modal, fields, profile)
     elif page_type in (PageType.QUESTIONS, PageType.UNKNOWN):
-        new_answers, unanswered = await _fill_questions(page, modal, fields, profile, qa_cache)
+        new_answers, unanswered, pending_verification = await _fill_questions(
+            page, modal, fields, profile, qa_cache
+        )
     elif page_type == PageType.REVIEW:
         await _fill_review(page, modal, fields, profile)
     elif page_type == PageType.TOP_CHOICE:
@@ -545,7 +570,7 @@ async def _fill_page(
     elif page_type == PageType.CONFIRMATION:
         pass  # Nothing to fill
 
-    return new_answers, unanswered
+    return new_answers, unanswered, pending_verification
 
 
 # ---------------------------------------------------------------------------
@@ -605,14 +630,19 @@ async def handle_easy_apply_modal(
             field_count=len(page_data.get("fields", [])),
         )
 
-        new_answers, unanswered = await _fill_page(
+        new_answers, unanswered, pending_verification = await _fill_page(
             page, modal, page_data, page_type, profile, context, qa_cache
         )
 
-        # Persist newly derived Q&A answers
+        # Profile-derived answers → qa_cache (verified, reliable)
         for key, answer in new_answers.items():
             kb_store.set_qa_answer("linkedin", key, answer)
             qa_cache[key] = answer
+
+        # Pattern-matched answers → qa_pending_verification (awaiting user review)
+        for key, (label, answer, ftype, options) in pending_verification.items():
+            kb_store.add_qa_pending_verification("linkedin", key, label, answer, ftype, options)
+            qa_cache[key] = answer  # in-memory only so this session stays consistent
 
         if page_type == PageType.CONFIRMATION:
             logger.info("easy_apply_confirmed")

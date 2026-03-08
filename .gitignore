@@ -38,9 +38,10 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Personal resume data (never commit real resume)
+# Personal data (never commit real values)
 data/resume.md
 data/resume.docx
+data/profile.yaml
 data/*Zone.Identifier
 
 # Claude Code local settings (machine-specific)

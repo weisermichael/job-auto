@@ -302,6 +302,32 @@ job-auto answer-questions --retry        # skip the retry prompt and retry autom
 
 ---
 
+### `verify-answers` — confirm pattern-matched answers
+
+```bash
+job-auto verify-answers [--board linkedin]
+```
+
+Some form questions are answered automatically using heuristics (e.g. "How many years of experience do you have with X?" → `4`). These answers are applied to the form immediately so the application can proceed, but they are held in a `qa_pending_verification` queue instead of the permanent Q&A cache.
+
+This command walks you through each pending answer and lets you accept the suggestion or provide a corrected value:
+
+```
+[1/2] How many years of work experience do you have with QA Automation?
+      Type: text  |  Suggested: 4
+      Answer [4]: 3
+  ✓ Saved
+```
+
+Once confirmed, the answer graduates to `qa_cache` and is reused automatically on every future application — no further prompting. Until then, the heuristic fires again on each run and re-fills the form with the same value (idempotent re-queue), so applications are never blocked.
+
+```bash
+job-auto verify-answers              # LinkedIn (default)
+job-auto verify-answers --board indeed
+```
+
+---
+
 ### `retry-needs-answers` — batch retry after answering questions
 
 ```bash
@@ -342,7 +368,7 @@ job-auto kb show              # all boards
 job-auto kb show -b linkedin  # one board
 ```
 
-The knowledge base (`storage/knowledge_base.json`) stores per-board application procedures, learned selector patches from self-healing, and notes about quirks like rate limits and CAPTCHAs.
+The knowledge base (`storage/knowledge_base.json`) stores per-board application procedures, learned selector patches from self-healing, and notes about quirks like rate limits and CAPTCHAs. It also holds two Q&A tiers: `qa_cache` for verified answers and `qa_pending_verification` for pattern-matched answers awaiting your confirmation via `verify-answers`.
 
 ---
 
@@ -375,6 +401,11 @@ job-auto status -s needs_answers         # see which apps need answers
 job-auto answer-questions                # answer them interactively, retry when done
 # or, if you answered questions in bulk:
 job-auto retry-needs-answers             # batch retry all ready apps
+```
+
+**Review pattern-matched answers:**
+```bash
+job-auto verify-answers                  # confirm or override heuristic answers
 ```
 
 **Morning routine (cron-friendly):**

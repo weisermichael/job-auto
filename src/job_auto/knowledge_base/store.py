@@ -188,6 +188,46 @@ class KnowledgeBaseStore:
         raw = self.get_raw(board)
         return dict(raw.get("pending_questions", {})) if raw else {}
 
+    def get_qa_pending_verification(self, board: str) -> dict[str, dict]:
+        """Return {cache_key: {label, answer, type}} for all pattern-matched answers awaiting review."""
+        raw = self.get_raw(board)
+        return dict(raw.get("qa_pending_verification", {})) if raw else {}
+
+    def add_qa_pending_verification(
+        self,
+        board: str,
+        key: str,
+        label: str,
+        answer: str,
+        ftype: str,
+        options: list[str] | None = None,
+    ) -> None:
+        """Store a pattern-matched answer under qa_pending_verification for async user review.
+
+        ``options`` is required for select/radio fields so verify_answers can
+        present a numbered-choice picker instead of a plain text prompt.
+        """
+        key = re.sub(r"\s+", " ", key.lower()).strip()
+        with self._lock:
+            self._load()
+            entry: dict[str, object] = {"label": label, "answer": answer, "type": ftype}
+            if options:
+                entry["options"] = options
+            self._data.setdefault(board, {}).setdefault("qa_pending_verification", {})[key] = entry
+            self._data[board]["last_updated"] = datetime.utcnow().isoformat()
+            self._save_unlocked()
+
+    def resolve_qa_pending_verification(self, board: str, key: str, confirmed_answer: str) -> None:
+        """Confirm a pending answer: remove from qa_pending_verification and write to qa_cache."""
+        key = re.sub(r"\s+", " ", key.lower()).strip()
+        with self._lock:
+            self._load()
+            board_data = self._data.setdefault(board, {})
+            board_data.setdefault("qa_pending_verification", {}).pop(key, None)
+            board_data.setdefault("qa_cache", {})[key] = confirmed_answer
+            board_data["last_updated"] = datetime.utcnow().isoformat()
+            self._save_unlocked()
+
     def get_failure_patches(self, board: str) -> dict[str, Any]:
         raw = self.get_raw(board)
         return raw.get("failure_patches", {}) if raw else {}
