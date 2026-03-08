@@ -444,6 +444,7 @@ class Pipeline:
 
         from job_auto.automation.browser import browser_context, launch_browser
 
+        _started = False
         try:
             async with (
                 async_playwright() as pw,
@@ -452,14 +453,17 @@ class Pipeline:
             ):
                 self._shared_browser = browser
                 self._shared_context = context
+                _started = True
                 try:
                     yield
                 finally:
                     self._shared_context = None
                     self._shared_browser = None
         except Exception as e:
+            if _started:
+                raise  # exception came from the batch loop, not from startup
             logger.warning("batch_browser_launch_failed", error=str(e))
-            yield
+            yield  # fallback: per-job browser (_shared_browser/_shared_context stay None)
 
     async def _submit(self, job: JobPosting, app: ApplicationRecord) -> ApplicationRecord:
         """Run the Playwright application bot."""
