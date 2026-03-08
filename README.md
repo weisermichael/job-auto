@@ -319,7 +319,7 @@ This command walks you through each pending answer and lets you accept the sugge
   ✓ Saved
 ```
 
-Once confirmed, the answer graduates to `qa_cache` and is reused automatically on every future application — no further prompting. Until then, the same suggested value is reapplied silently on each run without re-queuing, so applications are never blocked.
+Once confirmed, the answer graduates to `qa_cache` and is reused automatically on every future application — no further prompting. Until then, the heuristic fires again on each run and re-fills the form with the same value (idempotent re-queue), so applications are never blocked.
 
 ```bash
 job-auto verify-answers              # LinkedIn (default)
