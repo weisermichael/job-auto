@@ -1,0 +1,28 @@
+contact:
+  first_name: "Jane"
+  last_name: "Doe"
+  phone: "5551234567"              # digits only, no spaces or dashes
+  phone_country_code: "United States (+1)"
+  email: "jane.doe@example.com"   # same as LINKEDIN_EMAIL if applicable
+
+address:
+  street: "123 Main St"
+  city: "San Francisco"
+  state: "California"
+  zip: "94105"
+
+work_authorization:
+  authorized_us: "Yes"            # "Yes" or "No"
+  requires_sponsorship: "No"      # "Yes" or "No"
+
+education:
+  highest_level: "College - Bachelor of Science"
+
+preferences:
+  desired_salary: "120000"        # annual USD, as a string; leave "" to skip
+  willing_background_check: "Yes" # "Yes" or "No"
+  mark_top_choice: false          # check "Mark as top choice" on review page
+  follow_company: false           # check "Follow company" on review page
+
+urls:
+  linkedin_profile: "https://www.linkedin.com/in/your-profile/"
