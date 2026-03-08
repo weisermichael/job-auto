@@ -193,16 +193,27 @@ class KnowledgeBaseStore:
         raw = self.get_raw(board)
         return dict(raw.get("qa_pending_verification", {})) if raw else {}
 
-    def add_qa_pending_verification(self, board: str, key: str, label: str, answer: str, ftype: str) -> None:
-        """Store a pattern-matched answer under qa_pending_verification for async user review."""
+    def add_qa_pending_verification(
+        self,
+        board: str,
+        key: str,
+        label: str,
+        answer: str,
+        ftype: str,
+        options: list[str] | None = None,
+    ) -> None:
+        """Store a pattern-matched answer under qa_pending_verification for async user review.
+
+        ``options`` is required for select/radio fields so verify_answers can
+        present a numbered-choice picker instead of a plain text prompt.
+        """
         key = re.sub(r"\s+", " ", key.lower()).strip()
         with self._lock:
             self._load()
-            self._data.setdefault(board, {}).setdefault("qa_pending_verification", {})[key] = {
-                "label": label,
-                "answer": answer,
-                "type": ftype,
-            }
+            entry: dict[str, object] = {"label": label, "answer": answer, "type": ftype}
+            if options:
+                entry["options"] = options
+            self._data.setdefault(board, {}).setdefault("qa_pending_verification", {})[key] = entry
             self._data[board]["last_updated"] = datetime.utcnow().isoformat()
             self._save_unlocked()
 

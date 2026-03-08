@@ -410,7 +410,7 @@ async def _fill_questions(
     fields: list[dict],
     profile: CandidateProfile,
     qa_cache: dict[str, str],
-) -> tuple[dict[str, str], list[dict], dict[str, tuple[str, str, str]]]:
+) -> tuple[dict[str, str], list[dict], dict[str, tuple[str, str, str, list[str]]]]:
     """Fill question fields.
 
     Returns:
@@ -422,7 +422,7 @@ async def _fill_questions(
     """
     new_answers: dict[str, str] = {}
     unanswered: list[dict] = []
-    pending_verification: dict[str, tuple[str, str, str]] = {}
+    pending_verification: dict[str, tuple[str, str, str, list[str]]] = {}
 
     for field in fields:
         label = field["label"]
@@ -470,7 +470,7 @@ async def _fill_questions(
             elif re.search(r"years of work experience.*with (.+)", label_lower):
                 answer = "4"
                 if answer:
-                    pending_verification[cache_key] = (label, answer, ftype)
+                    pending_verification[cache_key] = (label, answer, ftype, field.get("options", []))
 
         if answer:
             loc = modal.get_by_label(label, exact=False)
@@ -537,7 +537,7 @@ async def _fill_page(
     profile: CandidateProfile,
     context: dict,
     qa_cache: dict[str, str],
-) -> tuple[dict[str, str], list[dict], dict[str, tuple[str, str, str]]]:
+) -> tuple[dict[str, str], list[dict], dict[str, tuple[str, str, str, list[str]]]]:
     """Fill one modal page.
 
     Returns:
@@ -549,7 +549,7 @@ async def _fill_page(
     fields = page_data.get("fields", [])
     new_answers: dict[str, str] = {}
     unanswered: list[dict] = []
-    pending_verification: dict[str, tuple[str, str, str]] = {}
+    pending_verification: dict[str, tuple[str, str, str, list[str]]] = {}
 
     if page_type == PageType.CONTACT:
         await _fill_contact(page, modal, fields, profile)
@@ -640,8 +640,8 @@ async def handle_easy_apply_modal(
             qa_cache[key] = answer
 
         # Pattern-matched answers → qa_pending_verification (awaiting user review)
-        for key, (label, answer, ftype) in pending_verification.items():
-            kb_store.add_qa_pending_verification("linkedin", key, label, answer, ftype)
+        for key, (label, answer, ftype, options) in pending_verification.items():
+            kb_store.add_qa_pending_verification("linkedin", key, label, answer, ftype, options)
             qa_cache[key] = answer  # in-memory only so this session stays consistent
 
         if page_type == PageType.CONFIRMATION:
