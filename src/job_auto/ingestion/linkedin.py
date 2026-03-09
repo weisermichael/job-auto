@@ -16,6 +16,12 @@ from job_auto.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+_POSTED_WITHIN_MAP: dict[str, str] = {
+    "day": "r86400",
+    "week": "r604800",
+    "month": "r2592000",
+}
+
 _LEVEL_MAP: dict[str, ExperienceLevel] = {
     "internship": ExperienceLevel.INTERN,
     "entry level": ExperienceLevel.ENTRY,
@@ -149,6 +155,7 @@ class LinkedInScraper(AbstractScraper):
         location: str = "",
         remote: bool = False,
         limit: int = 20,
+        posted_within: str | None = None,
         **kwargs,
     ) -> list[JobPosting]:
         """Search LinkedIn jobs (public listing page, no auth required)."""
@@ -159,6 +166,8 @@ class LinkedInScraper(AbstractScraper):
         }
         if remote:
             params["f_WT"] = 2  # remote filter
+        if posted_within and posted_within in _POSTED_WITHIN_MAP:
+            params["f_TPR"] = _POSTED_WITHIN_MAP[posted_within]
 
         results: list[JobPosting] = []
         start = 0

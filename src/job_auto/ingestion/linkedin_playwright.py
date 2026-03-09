@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 from bs4 import BeautifulSoup
 
 from job_auto.config import config
-from job_auto.ingestion.linkedin import LinkedInScraper
+from job_auto.ingestion.linkedin import _POSTED_WITHIN_MAP, LinkedInScraper
 from job_auto.models.job_posting import JobPosting
 from job_auto.utils.logging import get_logger
 
@@ -84,6 +84,7 @@ class LinkedInPlaywrightScraper:
         remote: bool = False,
         limit: int = 20,
         easy_apply_only: bool = False,
+        posted_within: str | None = None,
         **kwargs,
     ) -> list[JobPosting]:
         """Search LinkedIn jobs while authenticated.
@@ -104,6 +105,8 @@ class LinkedInPlaywrightScraper:
             params["f_WT"] = 2
         if easy_apply_only:
             params["f_LF"] = "f_AL"
+        if posted_within and posted_within in _POSTED_WITHIN_MAP:
+            params["f_TPR"] = _POSTED_WITHIN_MAP[posted_within]
 
         # Phase 1: collect all job URLs via Playwright (authenticated search pages only).
         # All Playwright navigation completes before any httpx requests are made,
