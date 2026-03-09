@@ -272,9 +272,14 @@ def browse(unapplied: bool, board: str) -> None:
                    "Required for reliable Easy Apply server-side filtering.")
 @click.option(
     "--posted-within",
-    type=click.Choice(["day", "week", "month"], case_sensitive=False),
+    type=str,
     default=None,
-    help="Only return jobs posted within the given time window (LinkedIn only).",
+    metavar="WINDOW",
+    help=(
+        "Only return jobs posted within the given time window (LinkedIn only). "
+        "Named: 1hour, 6hours, 12hours, day, week, month. "
+        "Or pass raw seconds (e.g. 7200)."
+    ),
 )
 def scan(board: str, query: str, limit: int, remote: bool, easy_apply_only: bool, auth_flow: bool, posted_within: str | None) -> None:
     """Scan a job board for new listings matching criteria.
