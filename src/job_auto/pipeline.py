@@ -245,6 +245,8 @@ class Pipeline:
         remote: bool = True,
         easy_apply_only: bool = False,
         auth_flow: bool = False,
+        posted_within: str | None = None,
+        sort_recent: bool = False,
         **kwargs,
     ) -> tuple[list[JobPosting], int]:
         """Scan a job board for new listings and store them.
@@ -282,11 +284,19 @@ class Pipeline:
                 # the server-side filter; skipped count is always 0 here.
                 jobs = await scraper.search(
                     query=query, remote=remote, limit=limit,
-                    easy_apply_only=easy_apply_only, **kwargs
+                    easy_apply_only=easy_apply_only,
+                    posted_within=posted_within,
+                    sort_recent=sort_recent,
+                    **kwargs
                 )
                 skipped = 0
             else:
-                jobs = await scraper.search(query=query, remote=remote, limit=limit, **kwargs)
+                jobs = await scraper.search(
+                    query=query, remote=remote, limit=limit,
+                    posted_within=posted_within,
+                    sort_recent=sort_recent,
+                    **kwargs
+                )
                 skipped = 0
                 if easy_apply_only:
                     filtered = [j for j in jobs if j.easy_apply_available]

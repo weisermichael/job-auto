@@ -13,7 +13,7 @@ from typing import Any, Optional
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeout
 
 from job_auto.ai.error_analyzer import analyze_failure
-from job_auto.automation.exceptions import SessionExpiredError
+from job_auto.automation.exceptions import JobClosedException, SessionExpiredError
 from job_auto.config import config
 from job_auto.db import repository as repo
 from job_auto.db.session import get_session
@@ -149,6 +149,15 @@ class AbstractApplicator(ABC):
                         )
                 except ImportError:
                     pass
+
+                # Job posting closed — park immediately, do not retry or record as generic failure
+                if isinstance(e, JobClosedException):
+                    logger.warning("job_closed_no_longer_accepting", url=e.url)
+                    return ApplicationResult(
+                        success=False,
+                        message=str(e),
+                        intended_status=ApplicationStatus.EXPIRED,
+                    )
 
                 current_url = self.page.url
                 error_msg = str(e)

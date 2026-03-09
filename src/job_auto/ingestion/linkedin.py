@@ -16,6 +16,30 @@ from job_auto.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+_POSTED_WITHIN_MAP: dict[str, str] = {
+    "1hour":   "r3600",
+    "6hours":  "r21600",
+    "12hours": "r43200",
+    "day":     "r86400",
+    "week":    "r604800",
+    "month":   "r2592000",
+}
+
+
+def _resolve_posted_within(value: str | None) -> str | None:
+    """Return the f_TPR param string, or None if value is falsy/invalid."""
+    if not value:
+        return None
+    if value in _POSTED_WITHIN_MAP:
+        return _POSTED_WITHIN_MAP[value]
+    try:
+        seconds = int(value)
+        if seconds > 0:
+            return f"r{seconds}"
+    except ValueError:
+        pass
+    return None
+
 _LEVEL_MAP: dict[str, ExperienceLevel] = {
     "internship": ExperienceLevel.INTERN,
     "entry level": ExperienceLevel.ENTRY,
@@ -149,6 +173,8 @@ class LinkedInScraper(AbstractScraper):
         location: str = "",
         remote: bool = False,
         limit: int = 20,
+        posted_within: str | None = None,
+        sort_recent: bool = False,
         **kwargs,
     ) -> list[JobPosting]:
         """Search LinkedIn jobs (public listing page, no auth required)."""
@@ -159,6 +185,11 @@ class LinkedInScraper(AbstractScraper):
         }
         if remote:
             params["f_WT"] = 2  # remote filter
+        f_tpr = _resolve_posted_within(posted_within)
+        if f_tpr:
+            params["f_TPR"] = f_tpr
+        if sort_recent:
+            params["sortBy"] = "DD"
 
         results: list[JobPosting] = []
         start = 0

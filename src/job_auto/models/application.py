@@ -30,6 +30,7 @@ class ApplicationStatus(StrEnum):
     OFFER = "offer"
     REJECTED = "rejected"
     WITHDRAWN = "withdrawn"
+    EXPIRED = "expired"
 
 
 class ApplicationRecord(BaseModel):
@@ -67,6 +68,7 @@ class ApplicationRecord(BaseModel):
             ApplicationStatus.REVIEW_REJECTED,
             ApplicationStatus.WITHDRAWN,
             ApplicationStatus.OFFER,
+            ApplicationStatus.EXPIRED,
         }
 
     @property

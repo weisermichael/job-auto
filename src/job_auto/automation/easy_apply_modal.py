@@ -519,10 +519,12 @@ async def _fill_review(page: Page, modal, fields: list[dict], profile: Candidate
                     if await loc.count() > 0:
                         await loc.first.check()
             elif "follow" in label_lower:
-                if profile.preferences.follow_company and not field.get("current_value"):
+                # Always uncheck — LinkedIn pre-checks this by default
+                if field.get("current_value"):
                     loc = modal.get_by_label(field["label"], exact=False)
                     if await loc.count() > 0:
-                        await loc.first.check()
+                        await loc.first.uncheck()
+                        logger.debug("follow_company_unchecked", label=field["label"])
 
 
 async def _fill_top_choice(page: Page, modal, fields: list[dict], profile: CandidateProfile) -> None:
@@ -677,6 +679,18 @@ async def handle_easy_apply_modal(
         submit_sel = f"{_MODAL_CSS} button[aria-label='Submit application']"
         submit = modal.locator("button[aria-label='Submit application']")
         if await submit.count() > 0 and await submit.is_visible():
+            # Verify "Follow company" is unchecked before submitting
+            pre_submit_data = await modal.evaluate(_EXTRACT_FIELDS_JS)
+            for _field in pre_submit_data.get("fields", []):
+                if _field["type"] == "checkbox" and "follow" in _field["label"].lower():
+                    if _field.get("current_value"):
+                        _loc = modal.get_by_label(_field["label"], exact=False)
+                        if await _loc.count() > 0:
+                            await _loc.first.uncheck()
+                            logger.warning(
+                                "follow_company_still_checked_before_submit_corrected",
+                                label=_field["label"],
+                            )
             await asyncio.sleep(random.uniform(0.5, 1.0))
             logger.debug("easy_apply_submit_clicking")
             await human_move_and_click(page, submit_sel)

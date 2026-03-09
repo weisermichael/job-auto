@@ -270,7 +270,20 @@ def browse(unapplied: bool, board: str) -> None:
 @click.option("--auth-flow", is_flag=True, default=False,
               help="Use authenticated Playwright browser (LinkedIn only). "
                    "Required for reliable Easy Apply server-side filtering.")
-def scan(board: str, query: str, limit: int, remote: bool, easy_apply_only: bool, auth_flow: bool) -> None:
+@click.option(
+    "--posted-within",
+    type=str,
+    default=None,
+    metavar="WINDOW",
+    help=(
+        "Only return jobs posted within the given time window (LinkedIn only). "
+        "Named: 1hour, 6hours, 12hours, day, week, month. "
+        "Or pass raw seconds (e.g. 7200)."
+    ),
+)
+@click.option("--sort-recent", is_flag=True, default=False,
+              help="Sort results by Most Recent instead of Most Relevant (LinkedIn only).")
+def scan(board: str, query: str, limit: int, remote: bool, easy_apply_only: bool, auth_flow: bool, posted_within: str | None, sort_recent: bool) -> None:
     """Scan a job board for new listings matching criteria.
 
     \b
@@ -278,6 +291,7 @@ def scan(board: str, query: str, limit: int, remote: bool, easy_apply_only: bool
       job-auto scan linkedin -q "senior python engineer"
       job-auto scan linkedin -q "backend engineer" --easy-apply
       job-auto scan linkedin -q "backend engineer" --auth-flow --easy-apply
+      job-auto scan linkedin -q "backend engineer" --posted-within day
     """
     from job_auto.ingestion.linkedin_playwright import LinkedInAuthError
     from job_auto.pipeline import Pipeline
@@ -291,6 +305,8 @@ def scan(board: str, query: str, limit: int, remote: bool, easy_apply_only: bool
                 board=board, query=query, limit=limit, remote=remote,
                 easy_apply_only=effective_easy_apply,
                 auth_flow=auth_flow,
+                posted_within=posted_within,
+                sort_recent=sort_recent,
             )
         except LinkedInAuthError as exc:
             console.print(f"[bold red]LinkedIn auth error:[/bold red] {exc}")

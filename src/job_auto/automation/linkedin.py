@@ -11,7 +11,7 @@ from playwright.async_api import Page
 
 from job_auto.automation.base import AbstractApplicator, ApplicationResult
 from job_auto.automation.browser import human_move_and_click, human_type
-from job_auto.automation.exceptions import SessionExpiredError
+from job_auto.automation.exceptions import JobClosedException, SessionExpiredError
 from job_auto.config import config
 from job_auto.knowledge_base.store import kb_store
 from job_auto.models.application import ApplicationRecord
@@ -103,6 +103,12 @@ class LinkedInApplicator(AbstractApplicator):
                 logger.info("linkedin_signin_modal_dismissed")
             except Exception:
                 pass  # modal not present
+
+            # Detect expired / closed job posting — fail fast, do not retry
+            page_text = (await page.inner_text("body")).lower()
+            if "no longer accepting applications" in page_text:
+                logger.warning("linkedin_job_closed", url=nav_url)
+                raise JobClosedException(nav_url)
 
         elif action == "click":
             await self._smart_click(selector or "")
