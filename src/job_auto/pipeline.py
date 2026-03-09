@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime
-from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from playwright.async_api import Browser, BrowserContext
 
 from job_auto.ai.cover_letter import cover_letter_to_markdown, generate_cover_letter
 from job_auto.ai.tailoring import (
@@ -20,7 +23,7 @@ from job_auto.db import repository as repo
 from job_auto.db.session import get_session
 from job_auto.ingestion.generic import get_scraper
 from job_auto.models.application import ApplicationRecord, ApplicationStatus
-from job_auto.models.job_posting import JobBoard, JobPosting
+from job_auto.models.job_posting import JobPosting
 from job_auto.utils.logging import get_logger
 from job_auto.utils.resume_converter import md_to_pdf, yaml_to_pdf
 
@@ -34,9 +37,11 @@ class PipelineError(Exception):
 class Pipeline:
     """End-to-end job application orchestrator."""
 
-    def __init__(self, autonomous: Optional[bool] = None, tailor: bool = False) -> None:
+    def __init__(self, autonomous: bool | None = None, tailor: bool = False) -> None:
         self.autonomous = autonomous if autonomous is not None else config.autonomous_mode
         self.tailor = tailor
+        self._shared_browser: Browser | None = None
+        self._shared_context: BrowserContext | None = None
 
     # ──────────────────────────────────────────────────────────
     # Public API
@@ -57,7 +62,7 @@ class Pipeline:
         # 2. DEDUPE / UPSERT
         # Always look up by URL — the freshly-scraped job has a new UUID that won't
         # match any existing DB record, so we must use the existing row's ID.
-        existing_app: Optional[ApplicationRecord] = None
+        existing_app: ApplicationRecord | None = None
         with get_session() as session:
             existing_job = repo.get_job_by_url(session, str(job.url))
             if existing_job is not None:
@@ -182,16 +187,17 @@ class Pipeline:
         logger.info("apply_all_start", count=len(jobs))
         results: list[ApplicationRecord] = []
 
-        for job in jobs:
-            try:
-                app = await self.apply_from_job(job, dry_run=dry_run)
-                results.append(app)
-            except PipelineError as e:
-                logger.warning("apply_all_stopped", reason=str(e))
-                break
-            except Exception as e:
-                logger.error("apply_all_job_error", job_id=job.id, error=str(e))
-                # Continue to next job on non-limit errors
+        async with self._batch_browser_session():
+            for job in jobs:
+                try:
+                    app = await self.apply_from_job(job, dry_run=dry_run)
+                    results.append(app)
+                except PipelineError as e:
+                    logger.warning("apply_all_stopped", reason=str(e))
+                    break
+                except Exception as e:
+                    logger.error("apply_all_job_error", job_id=job.id, error=str(e))
+                    # Continue to next job on non-limit errors
 
         return results
 
@@ -207,26 +213,27 @@ class Pipeline:
         logger.info("submit_queued_start", count=len(apps))
         results: list[ApplicationRecord] = []
 
-        for app in apps:
-            with get_session() as session:
-                job = repo.get_job(session, app.job_id)
-            if not job:
-                logger.warning("submit_queued_job_not_found", app_id=app.id, job_id=app.job_id)
-                continue
+        async with self._batch_browser_session():
+            for app in apps:
+                with get_session() as session:
+                    job = repo.get_job(session, app.job_id)
+                if not job:
+                    logger.warning("submit_queued_job_not_found", app_id=app.id, job_id=app.job_id)
+                    continue
 
-            with get_session() as session:
-                today_count = repo.count_submitted_today(session)
-            if today_count >= config.daily_apply_limit:
-                logger.warning("daily_limit_reached", limit=config.daily_apply_limit, today=today_count)
-                raise PipelineError(
-                    f"Daily application limit ({config.daily_apply_limit}) reached. Try again tomorrow."
-                )
+                with get_session() as session:
+                    today_count = repo.count_submitted_today(session)
+                if today_count >= config.daily_apply_limit:
+                    logger.warning("daily_limit_reached", limit=config.daily_apply_limit, today=today_count)
+                    raise PipelineError(
+                        f"Daily application limit ({config.daily_apply_limit}) reached. Try again tomorrow."
+                    )
 
-            try:
-                app = await self._submit(job, app)
-                results.append(app)
-            except Exception as e:
-                logger.error("submit_queued_error", app_id=app.id, error=str(e))
+                try:
+                    app = await self._submit(job, app)
+                    results.append(app)
+                except Exception as e:
+                    logger.error("submit_queued_error", app_id=app.id, error=str(e))
 
         return results
 
@@ -306,7 +313,7 @@ class Pipeline:
             return await scraper.parse(url)
 
     async def _prepare_default_documents(
-        self, job: JobPosting, existing_app: Optional[ApplicationRecord] = None
+        self, job: JobPosting, existing_app: ApplicationRecord | None = None
     ) -> ApplicationRecord:
         """Create an ApplicationRecord using the cached base-resume PDF (no AI calls)."""
         if existing_app is not None:
@@ -348,7 +355,7 @@ class Pipeline:
         return app
 
     async def _tailor(
-        self, job: JobPosting, existing_app: Optional[ApplicationRecord] = None
+        self, job: JobPosting, existing_app: ApplicationRecord | None = None
     ) -> ApplicationRecord:
         """Run AI tailoring and create the ApplicationRecord."""
         if existing_app is not None:
@@ -425,6 +432,39 @@ class Pipeline:
 
         return app
 
+    @asynccontextmanager
+    async def _batch_browser_session(self):
+        """Launch a shared browser + context for a batch of jobs.
+
+        Reusing one context across jobs avoids the browser window closing and
+        reopening between submissions.  Falls back to per-job browser/context
+        launching if startup fails (e.g. no display when headless=False).
+        """
+        from playwright.async_api import async_playwright
+
+        from job_auto.automation.browser import browser_context, launch_browser
+
+        _started = False
+        try:
+            async with (
+                async_playwright() as pw,
+                launch_browser(pw) as browser,
+                browser_context(browser, storage_state_path=config.linkedin_session_path) as (_, context),
+            ):
+                self._shared_browser = browser
+                self._shared_context = context
+                _started = True
+                try:
+                    yield
+                finally:
+                    self._shared_context = None
+                    self._shared_browser = None
+        except Exception as e:
+            if _started:
+                raise  # exception came from the batch loop, not from startup
+            logger.warning("batch_browser_launch_failed", error=str(e))
+            yield  # fallback: per-job browser (_shared_browser/_shared_context stay None)
+
     async def _submit(self, job: JobPosting, app: ApplicationRecord) -> ApplicationRecord:
         """Run the Playwright application bot."""
         from playwright.async_api import async_playwright
@@ -439,22 +479,32 @@ class Pipeline:
             repo.update_application(session, app)
 
         session_path = config.linkedin_session_path if board == "linkedin" else None
+
+        async def _run(context):
+            async with new_page(context) as page:
+                applicator = applicator_class(page)
+
+                # Log in if LinkedIn
+                if board == "linkedin" and hasattr(applicator, "login"):
+                    await applicator.login()
+
+                result = await applicator.submit(job, app)
+                if result.success:
+                    app.status = ApplicationStatus.SUBMITTED
+                else:
+                    app.status = result.intended_status or ApplicationStatus.FAILED
+                    app.last_failure_reason = result.message
+
         try:
-            async with async_playwright() as pw:
-                async with browser_context(pw, storage_state_path=session_path) as (_, context):
-                    async with new_page(context) as page:
-                        applicator = applicator_class(page)
-
-                        # Log in if LinkedIn
-                        if board == "linkedin" and hasattr(applicator, "login"):
-                            await applicator.login()
-
-                        result = await applicator.submit(job, app)
-                        if result.success:
-                            app.status = ApplicationStatus.SUBMITTED
-                        else:
-                            app.status = result.intended_status or ApplicationStatus.FAILED
-                            app.last_failure_reason = result.message
+            if self._shared_context is not None and board == "linkedin":
+                # Reuse the persistent batch context — no window open/close per job
+                await _run(self._shared_context)
+            elif self._shared_browser is not None:
+                async with browser_context(self._shared_browser, storage_state_path=session_path) as (_, context):
+                    await _run(context)
+            else:
+                async with async_playwright() as pw, browser_context(pw, storage_state_path=session_path) as (_, context):
+                    await _run(context)
         except Exception:
             # Ensure status never stays stuck at SUBMITTING if something crashes
             if app.status == ApplicationStatus.SUBMITTING:
