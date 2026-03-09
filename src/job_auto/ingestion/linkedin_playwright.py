@@ -85,6 +85,7 @@ class LinkedInPlaywrightScraper:
         limit: int = 20,
         easy_apply_only: bool = False,
         posted_within: str | None = None,
+        sort_recent: bool = False,
         **kwargs,
     ) -> list[JobPosting]:
         """Search LinkedIn jobs while authenticated.
@@ -108,6 +109,8 @@ class LinkedInPlaywrightScraper:
         f_tpr = _resolve_posted_within(posted_within)
         if f_tpr:
             params["f_TPR"] = f_tpr
+        if sort_recent:
+            params["sortBy"] = "DD"
 
         # Phase 1: collect all job URLs via Playwright (authenticated search pages only).
         # All Playwright navigation completes before any httpx requests are made,

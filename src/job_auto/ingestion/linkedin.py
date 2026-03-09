@@ -174,6 +174,7 @@ class LinkedInScraper(AbstractScraper):
         remote: bool = False,
         limit: int = 20,
         posted_within: str | None = None,
+        sort_recent: bool = False,
         **kwargs,
     ) -> list[JobPosting]:
         """Search LinkedIn jobs (public listing page, no auth required)."""
@@ -187,6 +188,8 @@ class LinkedInScraper(AbstractScraper):
         f_tpr = _resolve_posted_within(posted_within)
         if f_tpr:
             params["f_TPR"] = f_tpr
+        if sort_recent:
+            params["sortBy"] = "DD"
 
         results: list[JobPosting] = []
         start = 0

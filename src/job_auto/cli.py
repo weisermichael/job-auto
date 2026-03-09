@@ -281,7 +281,9 @@ def browse(unapplied: bool, board: str) -> None:
         "Or pass raw seconds (e.g. 7200)."
     ),
 )
-def scan(board: str, query: str, limit: int, remote: bool, easy_apply_only: bool, auth_flow: bool, posted_within: str | None) -> None:
+@click.option("--sort-recent", is_flag=True, default=False,
+              help="Sort results by Most Recent instead of Most Relevant (LinkedIn only).")
+def scan(board: str, query: str, limit: int, remote: bool, easy_apply_only: bool, auth_flow: bool, posted_within: str | None, sort_recent: bool) -> None:
     """Scan a job board for new listings matching criteria.
 
     \b
@@ -304,6 +306,7 @@ def scan(board: str, query: str, limit: int, remote: bool, easy_apply_only: bool
                 easy_apply_only=effective_easy_apply,
                 auth_flow=auth_flow,
                 posted_within=posted_within,
+                sort_recent=sort_recent,
             )
         except LinkedInAuthError as exc:
             console.print(f"[bold red]LinkedIn auth error:[/bold red] {exc}")
