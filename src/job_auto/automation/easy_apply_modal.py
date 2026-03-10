@@ -521,37 +521,60 @@ async def _fill_questions(
                     pending_verification[cache_key] = (label, answer, ftype, field.get("options", []))
 
         if answer:
-            loc = modal.get_by_label(label, exact=False)
-            if await loc.count() > 0:
-                if ftype == "select":
-                    try:
-                        await loc.first.select_option(label=answer)
-                    except Exception:
-                        try:
-                            await loc.first.select_option(value=answer)
-                        except Exception:
-                            pass
-                elif ftype == "radio":
-                    opts = field.get("options", [])
-                    target = next((o for o in opts if o.lower().startswith(answer.lower())), None)
-                    if target:
+            if ftype == "radio":
+                # get_by_label does not work for fieldset+legend radio groups —
+                # Playwright cannot associate a <legend> with its inputs the same
+                # way it handles <label>.  Handle radio clicks independently:
+                # find any input in this group by name, traverse to its ancestor
+                # fieldset, then click the matching option label within that scope.
+                # This also prevents cross-group collision when multiple groups share
+                # the same option text (e.g. two Yes/No groups on one page).
+                opts = field.get("options", [])
+                name = field.get("name", "")
+                target = next((o for o in opts if o.lower().startswith(answer.lower())), None)
+                if target:
+                    clicked = False
+                    if name:
+                        first_in_group = modal.locator(
+                            f"input[type='radio'][name='{name}']"
+                        ).first
+                        if await first_in_group.count() > 0:
+                            fs = first_in_group.locator("xpath=ancestor::fieldset")
+                            scope = fs.first if await fs.count() > 0 else modal
+                            option_lbl = scope.locator("label", has_text=target).first
+                            if await option_lbl.count() > 0:
+                                await option_lbl.click()
+                                clicked = True
+                    if not clicked:
+                        # Fallback: unscoped search (works when there is only one group)
                         parent_label = modal.locator("label", has_text=target).first
                         if await parent_label.count() > 0:
                             await parent_label.click()
-                elif ftype == "checkbox":
-                    if answer.lower() in ("yes", "true", "1"):
-                        if not field.get("current_value"):
-                            await loc.first.check()
-                else:
-                    if any(kw in label_lower for kw in ("location", "city")):
-                        # Location/city fields may be typeahead autocompletes on LinkedIn.
-                        picked = await _pick_typeahead_first(modal, loc.first, answer)
-                        if not picked:
+            else:
+                loc = modal.get_by_label(label, exact=False)
+                if await loc.count() > 0:
+                    if ftype == "select":
+                        try:
+                            await loc.first.select_option(label=answer)
+                        except Exception:
+                            try:
+                                await loc.first.select_option(value=answer)
+                            except Exception:
+                                pass
+                    elif ftype == "checkbox":
+                        if answer.lower() in ("yes", "true", "1"):
+                            if not field.get("current_value"):
+                                await loc.first.check()
+                    else:
+                        if any(kw in label_lower for kw in ("location", "city")):
+                            # Location/city fields may be typeahead autocompletes on LinkedIn.
+                            picked = await _pick_typeahead_first(modal, loc.first, answer)
+                            if not picked:
+                                await loc.first.clear()
+                                await loc.first.type(answer, delay=random.randint(30, 80))
+                        else:
                             await loc.first.clear()
                             await loc.first.type(answer, delay=random.randint(30, 80))
-                    else:
-                        await loc.first.clear()
-                        await loc.first.type(answer, delay=random.randint(30, 80))
         elif field.get("required"):
             # Required field with no answer — record for the user to provide later
             unanswered.append({
