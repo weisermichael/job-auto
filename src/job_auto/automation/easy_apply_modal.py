@@ -309,6 +309,10 @@ async def _pick_typeahead_first(modal, input_loc, value: str) -> bool:
     """
     await input_loc.clear()
     await input_loc.type(value, delay=random.randint(30, 80))
+    # Wait for the debounce + server round-trip to complete for the *full* query.
+    # Without this, the listbox may still show results for an earlier partial input
+    # (e.g. typing "Atascadero" but clicking "Arizona" which appeared after just "A").
+    await asyncio.sleep(0.8)
     listbox = modal.locator("[role='listbox']")
     try:
         await listbox.wait_for(state="visible", timeout=4000)
