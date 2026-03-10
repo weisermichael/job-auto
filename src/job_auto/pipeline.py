@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from playwright.async_api import Browser, BrowserContext
+    from playwright.async_api import BrowserContext
 
 from job_auto.ai.cover_letter import cover_letter_to_markdown, generate_cover_letter
 from job_auto.ai.tailoring import (
@@ -40,7 +40,6 @@ class Pipeline:
     def __init__(self, autonomous: bool | None = None, tailor: bool = False) -> None:
         self.autonomous = autonomous if autonomous is not None else config.autonomous_mode
         self.tailor = tailor
-        self._shared_browser: Browser | None = None
         self._shared_context: BrowserContext | None = None
 
     # ──────────────────────────────────────────────────────────
@@ -444,46 +443,43 @@ class Pipeline:
 
     @asynccontextmanager
     async def _batch_browser_session(self):
-        """Launch a shared browser + context for a batch of jobs.
+        """Launch a shared persistent context for a batch of LinkedIn jobs.
 
         Reusing one context across jobs avoids the browser window closing and
-        reopening between submissions.  Falls back to per-job browser/context
-        launching if startup fails (e.g. no display when headless=False).
+        reopening between submissions.  Falls back to per-job launching if
+        startup fails (e.g. no display when headless=False).
         """
         from playwright.async_api import async_playwright
 
-        from job_auto.automation.browser import browser_context, launch_browser
+        from job_auto.automation.browser import linkedin_persistent_context
 
         _started = False
         try:
             async with (
                 async_playwright() as pw,
-                launch_browser(pw) as browser,
-                browser_context(
-                    browser,
-                    storage_state_path=config.linkedin_session_path,
-                    fingerprint_path=config.linkedin_fingerprint_path,
-                ) as (_, context),
+                linkedin_persistent_context(pw) as context,
             ):
-                self._shared_browser = browser
                 self._shared_context = context
                 _started = True
                 try:
                     yield
                 finally:
                     self._shared_context = None
-                    self._shared_browser = None
         except Exception as e:
             if _started:
                 raise  # exception came from the batch loop, not from startup
             logger.warning("batch_browser_launch_failed", error=str(e))
-            yield  # fallback: per-job browser (_shared_browser/_shared_context stay None)
+            yield  # fallback: per-job browser (_shared_context stays None)
 
     async def _submit(self, job: JobPosting, app: ApplicationRecord) -> ApplicationRecord:
         """Run the Playwright application bot."""
         from playwright.async_api import async_playwright
 
-        from job_auto.automation.browser import browser_context, new_page
+        from job_auto.automation.browser import (
+            browser_context,
+            linkedin_persistent_context,
+            new_page,
+        )
 
         board = job.board.value
         applicator_class = self._get_applicator_class(board)
@@ -491,9 +487,6 @@ class Pipeline:
         app.status = ApplicationStatus.SUBMITTING
         with get_session() as session:
             repo.update_application(session, app)
-
-        session_path = config.linkedin_session_path if board == "linkedin" else None
-        fingerprint_path = config.linkedin_fingerprint_path if board == "linkedin" else None
 
         async def _run(context):
             async with new_page(context) as page:
@@ -514,19 +507,11 @@ class Pipeline:
             if self._shared_context is not None and board == "linkedin":
                 # Reuse the persistent batch context — no window open/close per job
                 await _run(self._shared_context)
-            elif self._shared_browser is not None:
-                async with browser_context(
-                    self._shared_browser,
-                    storage_state_path=session_path,
-                    fingerprint_path=fingerprint_path,
-                ) as (_, context):
+            elif board == "linkedin":
+                async with async_playwright() as pw, linkedin_persistent_context(pw) as context:
                     await _run(context)
             else:
-                async with async_playwright() as pw, browser_context(
-                    pw,
-                    storage_state_path=session_path,
-                    fingerprint_path=fingerprint_path,
-                ) as (_, context):
+                async with async_playwright() as pw, browser_context(pw) as (_, context):
                     await _run(context)
         except Exception:
             # Ensure status never stays stuck at SUBMITTING if something crashes

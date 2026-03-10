@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Optional
 from urllib.parse import urlencode
 
 from bs4 import BeautifulSoup
 
-from job_auto.config import config
-from job_auto.ingestion.linkedin import _resolve_posted_within, LinkedInScraper
+from job_auto.ingestion.linkedin import LinkedInScraper, _resolve_posted_within
 from job_auto.models.job_posting import JobPosting
 from job_auto.utils.logging import get_logger
 
@@ -43,21 +41,17 @@ class LinkedInPlaywrightScraper:
     def __init__(self) -> None:
         self._stack = contextlib.AsyncExitStack()
         self._page = None
-        self._httpx_scraper: Optional[LinkedInScraper] = None
+        self._httpx_scraper: LinkedInScraper | None = None
 
-    async def __aenter__(self) -> "LinkedInPlaywrightScraper":
+    async def __aenter__(self) -> LinkedInPlaywrightScraper:
         from playwright.async_api import async_playwright
 
-        from job_auto.automation.browser import browser_context, new_page
+        from job_auto.automation.browser import linkedin_persistent_context, new_page
         from job_auto.automation.linkedin import LinkedInApplicator
 
         pw = await self._stack.enter_async_context(async_playwright())
-        _, context = await self._stack.enter_async_context(
-            browser_context(
-                pw,
-                storage_state_path=config.linkedin_session_path,
-                fingerprint_path=config.linkedin_fingerprint_path,
-            )
+        context = await self._stack.enter_async_context(
+            linkedin_persistent_context(pw)
         )
         self._page = await self._stack.enter_async_context(new_page(context))
 

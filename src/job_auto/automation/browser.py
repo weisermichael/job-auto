@@ -200,6 +200,72 @@ async def browser_context(
 
 
 @asynccontextmanager
+async def linkedin_persistent_context(
+    playwright: Playwright,
+    headless: bool | None = None,
+) -> AsyncGenerator[BrowserContext, None]:
+    """Launch a persistent Chromium profile for LinkedIn.
+
+    Uses launch_persistent_context so that service workers, caches, and
+    IndexedDB survive across runs, making sessions far more durable than
+    storage_state alone.
+    """
+    if headless is None:
+        headless = config.headless_browser
+
+    viewport, user_agent = _load_or_create_fingerprint(config.linkedin_fingerprint_path)
+
+    profile_dir = config.linkedin_profile_path
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    is_new_profile = not any(profile_dir.iterdir())
+
+    args = _LAUNCH_ARGS
+    launch_kwargs: dict = dict(
+        headless=headless,
+        viewport=viewport,
+        user_agent=user_agent,
+        locale="en-US",
+        timezone_id="America/New_York",
+        permissions=["geolocation"],
+        java_script_enabled=True,
+    )
+    if not headless:
+        args, env = _headed_launch_args_and_env(_LAUNCH_ARGS)
+        launch_kwargs["env"] = env or None
+    launch_kwargs["args"] = args
+
+    context = await playwright.chromium.launch_persistent_context(
+        str(profile_dir), **launch_kwargs
+    )
+
+    async def _block_tracking(route):
+        logger.debug("tracking_route_blocked", url=route.request.url)
+        await route.abort()
+
+    await context.route(
+        "**/(google-analytics|googletagmanager|hotjar|segment).**",
+        _block_tracking,
+    )
+
+    # One-time migration: import existing storage_state cookies into fresh profile
+    if is_new_profile and config.linkedin_session_path.exists():
+        try:
+            old_state = json.loads(config.linkedin_session_path.read_text())
+            cookies = old_state.get("cookies", [])
+            if cookies:
+                await context.add_cookies(cookies)
+                logger.info("linkedin_session_migrated", cookies=len(cookies))
+        except Exception as exc:
+            logger.warning("linkedin_session_migration_failed", error=str(exc))
+
+    logger.debug("linkedin_persistent_context_created", profile=str(profile_dir))
+    try:
+        yield context
+    finally:
+        await context.close()
+
+
+@asynccontextmanager
 async def new_page(context: BrowserContext) -> AsyncGenerator[Page, None]:
     """Open a new page with stealth init scripts applied."""
     page = await context.new_page()

@@ -97,6 +97,10 @@ class Config(BaseSettings):
         return self.storage_dir / "linkedin_fingerprint.json"
 
     @property
+    def linkedin_profile_path(self) -> Path:
+        return self.storage_dir / "linkedin_profile"
+
+    @property
     def gmail_credentials_path(self) -> Path:
         return self.storage_dir / "gmail_credentials.json"
 
