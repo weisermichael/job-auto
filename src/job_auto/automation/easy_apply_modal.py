@@ -298,6 +298,29 @@ def classify_page(page_data: dict) -> PageType:
 # ---------------------------------------------------------------------------
 
 
+async def _pick_typeahead_first(modal, input_loc, value: str) -> bool:
+    """Type *value* into a typeahead input and select the first autocomplete suggestion.
+
+    LinkedIn location fields are text inputs backed by a server-side typeahead.
+    Simply filling the value is not enough — a [role='listbox'] dropdown must appear
+    and the first [role='option'] must be clicked for the field to be considered valid.
+
+    Returns True if a suggestion was clicked, False if no dropdown appeared.
+    """
+    await input_loc.clear()
+    await input_loc.type(value, delay=random.randint(30, 80))
+    listbox = modal.locator("[role='listbox']")
+    try:
+        await listbox.wait_for(state="visible", timeout=4000)
+        first_option = listbox.locator("[role='option']").first
+        if await first_option.count() > 0:
+            await first_option.click()
+            return True
+    except Exception:
+        pass
+    return False
+
+
 async def _fill_contact(page: Page, modal, fields: list[dict], profile: CandidateProfile) -> None:
     for field in fields:
         label = field["label"].lower()
@@ -318,6 +341,18 @@ async def _fill_contact(page: Page, modal, fields: list[dict], profile: Candidat
                         await loc.first.select_option(label=profile.contact.phone_country_code)
                     except Exception:
                         pass
+        elif any(kw in label for kw in ("location", "city")) and ftype in ("text", "search"):
+            # LinkedIn location is a typeahead — typing alone is insufficient;
+            # the first autocomplete suggestion must be clicked to validate the field.
+            value = profile.address.city
+            if not current and value:
+                loc = modal.get_by_label(field["label"], exact=False)
+                if await loc.count() > 0:
+                    picked = await _pick_typeahead_first(modal, loc.first, value)
+                    if picked:
+                        logger.debug("contact_location_typeahead_selected", label=field["label"], value=value)
+                    else:
+                        logger.warning("contact_location_typeahead_no_dropdown", label=field["label"], value=value)
 
 
 async def _fill_address(page: Page, modal, fields: list[dict], profile: CandidateProfile) -> None:
@@ -343,6 +378,13 @@ async def _fill_address(page: Page, modal, fields: list[dict], profile: Candidat
                             await loc.first.select_option(label=value)
                         except Exception:
                             pass
+                    elif keyword == "city":
+                        # City inputs are often typeahead autocompletes on LinkedIn.
+                        picked = await _pick_typeahead_first(modal, loc.first, value)
+                        if not picked:
+                            # No dropdown — fall back to plain text fill.
+                            await loc.first.clear()
+                            await loc.first.type(value, delay=random.randint(30, 80))
                     else:
                         await loc.first.clear()
                         await loc.first.type(value, delay=random.randint(30, 80))
