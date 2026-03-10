@@ -299,6 +299,10 @@ def scan(board: str, query: str, limit: int, remote: bool, easy_apply_only: bool
     pipeline = Pipeline()
     effective_easy_apply = easy_apply_only or config.scan_easy_apply_only
 
+    if board.lower() != "linkedin" and (posted_within or sort_recent):
+        console.print("[bold red]Error:[/bold red] --posted-within and --sort-recent are LinkedIn only.")
+        raise SystemExit(1)
+
     async def _run():
         try:
             jobs, skipped = await pipeline.scan(
