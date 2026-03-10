@@ -537,8 +537,13 @@ async def _fill_questions(
                         if not field.get("current_value"):
                             await loc.first.check()
                 else:
-                    await loc.first.clear()
-                    await loc.first.type(answer, delay=random.randint(30, 80))
+                    # Try typeahead first — some text inputs (e.g. Location) are
+                    # autocomplete fields that require selecting a dropdown suggestion.
+                    # If no listbox appears within the timeout, fall back to plain fill.
+                    picked = await _pick_typeahead_first(modal, loc.first, answer)
+                    if not picked:
+                        await loc.first.clear()
+                        await loc.first.type(answer, delay=random.randint(30, 80))
         elif field.get("required"):
             # Required field with no answer — record for the user to provide later
             unanswered.append({
