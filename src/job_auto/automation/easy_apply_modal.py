@@ -519,12 +519,17 @@ async def _fill_review(page: Page, modal, fields: list[dict], profile: Candidate
                     if await loc.count() > 0:
                         await loc.first.check()
             elif "follow" in label_lower:
-                # Always uncheck — LinkedIn pre-checks this by default
+                # Always uncheck — LinkedIn pre-checks this by default.
+                # The actual <input> is a 1×1 px visually-hidden Ember element;
+                # force=True bypasses pointer-event checks.
                 if field.get("current_value"):
                     loc = modal.get_by_label(field["label"], exact=False)
                     if await loc.count() > 0:
-                        await loc.first.uncheck()
-                        logger.debug("follow_company_unchecked", label=field["label"])
+                        try:
+                            await loc.first.uncheck(force=True)
+                            logger.debug("follow_company_unchecked", label=field["label"])
+                        except Exception:
+                            logger.warning("follow_company_uncheck_failed", label=field["label"])
 
 
 async def _fill_top_choice(page: Page, modal, fields: list[dict], profile: CandidateProfile) -> None:
@@ -686,11 +691,17 @@ async def handle_easy_apply_modal(
                     if _field.get("current_value"):
                         _loc = modal.get_by_label(_field["label"], exact=False)
                         if await _loc.count() > 0:
-                            await _loc.first.uncheck()
-                            logger.warning(
-                                "follow_company_still_checked_before_submit_corrected",
-                                label=_field["label"],
-                            )
+                            try:
+                                await _loc.first.uncheck(force=True)
+                                logger.warning(
+                                    "follow_company_still_checked_before_submit_corrected",
+                                    label=_field["label"],
+                                )
+                            except Exception:
+                                logger.warning(
+                                    "follow_company_uncheck_failed_before_submit",
+                                    label=_field["label"],
+                                )
             await asyncio.sleep(random.uniform(0.5, 1.0))
             logger.debug("easy_apply_submit_clicking")
             await human_move_and_click(page, submit_sel)
