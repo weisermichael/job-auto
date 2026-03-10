@@ -459,7 +459,11 @@ class Pipeline:
             async with (
                 async_playwright() as pw,
                 launch_browser(pw) as browser,
-                browser_context(browser, storage_state_path=config.linkedin_session_path) as (_, context),
+                browser_context(
+                    browser,
+                    storage_state_path=config.linkedin_session_path,
+                    fingerprint_path=config.linkedin_fingerprint_path,
+                ) as (_, context),
             ):
                 self._shared_browser = browser
                 self._shared_context = context
@@ -489,6 +493,7 @@ class Pipeline:
             repo.update_application(session, app)
 
         session_path = config.linkedin_session_path if board == "linkedin" else None
+        fingerprint_path = config.linkedin_fingerprint_path if board == "linkedin" else None
 
         async def _run(context):
             async with new_page(context) as page:
@@ -510,10 +515,18 @@ class Pipeline:
                 # Reuse the persistent batch context — no window open/close per job
                 await _run(self._shared_context)
             elif self._shared_browser is not None:
-                async with browser_context(self._shared_browser, storage_state_path=session_path) as (_, context):
+                async with browser_context(
+                    self._shared_browser,
+                    storage_state_path=session_path,
+                    fingerprint_path=fingerprint_path,
+                ) as (_, context):
                     await _run(context)
             else:
-                async with async_playwright() as pw, browser_context(pw, storage_state_path=session_path) as (_, context):
+                async with async_playwright() as pw, browser_context(
+                    pw,
+                    storage_state_path=session_path,
+                    fingerprint_path=fingerprint_path,
+                ) as (_, context):
                     await _run(context)
         except Exception:
             # Ensure status never stays stuck at SUBMITTING if something crashes

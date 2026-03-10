@@ -53,7 +53,11 @@ class LinkedInPlaywrightScraper:
 
         pw = await self._stack.enter_async_context(async_playwright())
         _, context = await self._stack.enter_async_context(
-            browser_context(pw, storage_state_path=config.linkedin_session_path)
+            browser_context(
+                pw,
+                storage_state_path=config.linkedin_session_path,
+                fingerprint_path=config.linkedin_fingerprint_path,
+            )
         )
         self._page = await self._stack.enter_async_context(new_page(context))
 

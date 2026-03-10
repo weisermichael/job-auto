@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import random
 from collections.abc import AsyncGenerator
@@ -69,6 +70,22 @@ _USER_AGENTS = [
 ]
 
 
+def _load_or_create_fingerprint(fingerprint_path: Path) -> tuple[dict, str]:
+    """Return (viewport, user_agent), loading from disk or creating and saving a fresh one."""
+    if fingerprint_path.exists():
+        try:
+            data = json.loads(fingerprint_path.read_text())
+            return data["viewport"], data["user_agent"]
+        except (json.JSONDecodeError, KeyError):
+            pass  # fall through to regenerate
+    viewport = random.choice(_VIEWPORTS)
+    user_agent = random.choice(_USER_AGENTS)
+    fingerprint_path.parent.mkdir(parents=True, exist_ok=True)
+    fingerprint_path.write_text(json.dumps({"viewport": viewport, "user_agent": user_agent}))
+    logger.info("linkedin_fingerprint_created", path=str(fingerprint_path))
+    return viewport, user_agent
+
+
 async def apply_stealth(page: Page) -> None:
     """Apply stealth patches to evade basic bot detection."""
     # Override navigator properties
@@ -119,6 +136,7 @@ async def browser_context(
     playwright_or_browser: Playwright | Browser,
     headless: bool | None = None,
     storage_state_path: Path | None = None,
+    fingerprint_path: Path | None = None,
 ) -> AsyncGenerator[tuple[Browser, BrowserContext], None]:
     """Create a stealth browser context.
 
@@ -138,8 +156,11 @@ async def browser_context(
         browser = await _do_launch(playwright_or_browser, headless)
         own_browser = True
 
-    viewport = random.choice(_VIEWPORTS)
-    user_agent = random.choice(_USER_AGENTS)
+    if fingerprint_path is not None:
+        viewport, user_agent = _load_or_create_fingerprint(fingerprint_path)
+    else:
+        viewport = random.choice(_VIEWPORTS)
+        user_agent = random.choice(_USER_AGENTS)
 
     context_kwargs: dict = dict(
         viewport=viewport,
